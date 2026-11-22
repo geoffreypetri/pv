@@ -1,0 +1,17 @@
+# Données métier : ne jamais versionner
+*.xlsx
+*.xls
+*.csv
+*.pdf
+data*.json
+Suivi-PV/
+**/Suivi-PV/
+
+# Seul fichier d'exemple autorisé (données fictives)
+!exemple-abraxio.xlsx
+
+# Divers
+node_modules/
+_site/
+.DS_Store
+Thumbs.db
