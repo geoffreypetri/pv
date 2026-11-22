@@ -9,7 +9,8 @@
   <meta name="referrer" content="no-referrer">
   <title>Suivi PV</title>
   <meta name="description" content="Suivi mensuel des PV fournisseurs — données strictement locales.">
-  <meta name="theme-color" content="#1f4e79">
+  <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#18181b" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icons/icon.svg" type="image/svg+xml">
   <link rel="icon" href="icons/icon-192.png" sizes="192x192" type="image/png">
@@ -18,18 +19,18 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><img src="icons/icon.svg" alt="" width="28" height="28"><span>Suivi PV</span></div>
+    <div class="brand"><img src="icons/icon.svg" alt="" width="24" height="24"><span>Suivi PV</span></div>
     <div id="toolbar" class="toolbar" hidden>
       <div class="month-nav" role="group" aria-label="Mois">
-        <button id="monthPrev" type="button" class="icon-btn" title="Mois précédent" aria-label="Mois précédent">◀</button>
+        <button id="monthPrev" type="button" class="icon-btn" title="Mois précédent" aria-label="Mois précédent">‹</button>
         <select id="monthSelect" aria-label="Mois affiché"></select>
-        <button id="monthNext" type="button" class="icon-btn" title="Mois suivant" aria-label="Mois suivant">▶</button>
+        <button id="monthNext" type="button" class="icon-btn" title="Mois suivant" aria-label="Mois suivant">›</button>
       </div>
       <div class="toolbar-actions">
         <button id="btnImport" type="button" class="btn btn-primary">Importer Abraxio…</button>
         <button id="btnAddLine" type="button" class="btn">Ajouter une ligne</button>
         <button id="btnExport" type="button" class="btn">Exporter Excel</button>
-        <button id="btnSettings" type="button" class="btn btn-ghost" title="Paramètres">⚙ Paramètres</button>
+        <button id="btnSettings" type="button" class="btn btn-ghost">Paramètres</button>
       </div>
     </div>
     <button id="btnInstall" type="button" class="btn btn-install" hidden>Installer l'application</button>

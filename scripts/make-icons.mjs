@@ -13,8 +13,8 @@ async function render(size, file, maskable = false) {
   await page.setViewportSize({ width: size, height: size });
   // Icône « maskable » : fond plein et contenu dans la zone sûre (80 %).
   const inner = maskable
-    ? `<div style="width:${size}px;height:${size}px;background:#1f4e79;display:flex;align-items:center;justify-content:center">
-         <div style="width:${size * 0.8}px;height:${size * 0.8}px">${svg.replace('rx="96"', 'rx="0"')}</div></div>`
+    ? `<div style="width:${size}px;height:${size}px;background:#18181b;display:flex;align-items:center;justify-content:center">
+         <div style="width:${size * 0.8}px;height:${size * 0.8}px">${svg.replace('rx="112"', 'rx="0"')}</div></div>`
     : svg;
   await page.setContent(`<style>html,body{margin:0;background:transparent}svg{width:100%;height:100%;display:block}</style>
     <div style="width:${size}px;height:${size}px">${inner}</div>`);

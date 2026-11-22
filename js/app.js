@@ -268,7 +268,7 @@ function mainAction(l) {
 function lineRow(l) {
   const pvBtn = l.fichierPV
     ? h('button', { type: 'button', class: 'icon-btn pv-open', title: `Ouvrir le PV (${l.fichierPV})`, attrs: { 'aria-label': 'Ouvrir le PV' },
-      onclick: (e) => { e.stopPropagation(); openPV(l.id); } }, '📄')
+      onclick: (e) => { e.stopPropagation(); openPV(l.id); } }, 'PDF')
     : null;
   const tr = h('tr', {
     class: `row row-${l.statut} ${M.hasEcart(l, Number(state.data.config.toleranceEcart) || 0) ? 'row-ecart' : ''}`,
