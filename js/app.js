@@ -1,6 +1,6 @@
 // Point d'entrée : démarrage, accès au dossier de travail, tableau de bord du mois, export.
 
-import { h, clear, toast } from './ui.js';
+import { h, clear, toast, copyable } from './ui.js';
 import { state, subscribe, notify, openWorkdir, setReadOnly, APP_VERSION } from './store.js';
 import * as S from './storage.js';
 import * as M from './model.js';
@@ -10,7 +10,7 @@ import { buildExport } from './excel.js';
 import { startImport } from './import-ui.js';
 import { depositPV, openPV, validateLine, sapSheet, lineDetail, addLine, statusBadge, ecartView } from './line-ui.js';
 import { openSettings } from './settings-ui.js';
-import { initServiceWorker, initInstallButton } from './update.js';
+import { initServiceWorker } from './update.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -19,7 +19,6 @@ const $ = (id) => document.getElementById(id);
 async function boot() {
   $('appVersion').textContent = `${APP_VERSION.version} (${APP_VERSION.date})`;
   initServiceWorker();
-  initInstallButton($('btnInstall'));
   bindToolbar();
   preventFileDropOutsideRows();
   subscribe(render);
@@ -259,7 +258,7 @@ function mainAction(l) {
     case STATUTS.ATTENDU: return btn('Déposer le PV…', () => depositPV(l.id));
     case STATUTS.PV_RECU: return btn('Valider', () => validateLine(l.id), 'btn-primary');
     case STATUTS.VALIDE: return btn('Prêt pour SAP', () => sapSheet(l.id), 'btn-primary');
-    case STATUTS.BR_CREE: return h('span', { class: 'muted small', text: `BR ${l.numeroBR}${l.dateBR ? ` du ${formatDate(l.dateBR)}` : ''}` });
+    case STATUTS.BR_CREE: return h('span', { class: 'muted small' }, 'BR ', copyable(l.numeroBR, { title: 'Copier le n° de BR' }), l.dateBR ? ` du ${formatDate(l.dateBR)}` : '');
     case STATUTS.LITIGE: return btn('Voir le litige', () => lineDetail(l.id), 'btn-warn');
     default: return null;
   }
@@ -280,7 +279,7 @@ function lineRow(l) {
   },
   h('td', {}, h('div', { class: 'cell-main', text: l.collaborateur }), l.commentaire ? h('div', { class: 'cell-sub', text: l.commentaire }) : null),
   h('td', { text: l.fournisseur }),
-  h('td', {}, h('div', { text: l.commande }), l.poste ? h('div', { class: 'cell-sub', text: `poste ${l.poste}` }) : null),
+  h('td', {}, h('div', {}, copyable(l.commande, { title: 'Copier le n° de commande' })), l.poste ? h('div', { class: 'cell-sub', text: l.poste }) : null),
   h('td', { class: 'num', text: formatEuro(l.montantAttendu) }),
   h('td', { class: 'num' }, l.montantPV === null ? h('span', { class: 'muted', text: '—' }) : formatEuro(l.montantPV)),
   h('td', { class: 'num' }, ecartView(l)),

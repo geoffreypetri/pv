@@ -6,6 +6,11 @@ Notez les changements à venir sous `## [Non publié]` : `node scripts/release.m
 
 ## [Non publié]
 
+## [0.2.1] - 2026-11-22
+- N° de commande et n° de BR copiables d'un clic dans le tableau et les fiches
+- Colonne Commande : le poste s'affiche seul sous le n° de commande
+- Suppression du bouton « Installer l'application » (installation par le menu d'Edge)
+
 ## [0.2.0] - 2026-11-22
 - Nouvelle interface : plus sobre, palette neutre, statuts en pastilles
 - Mode sombre automatique selon le réglage de Windows

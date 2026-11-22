@@ -1,5 +1,4 @@
 // Service worker : enregistrement, détection des mises à jour, bannière « Nouvelle version ».
-// Bouton « Installer l'application » (beforeinstallprompt).
 // Jamais de rechargement sans action de l'utilisateur.
 
 import { h, toast } from './ui.js';
@@ -77,24 +76,4 @@ async function showUpdateBanner(worker) {
       reloadBtn,
       h('button', { type: 'button', class: 'btn btn-ghost', text: 'Plus tard', onclick: () => { banner.hidden = true; } })));
   banner.hidden = false;
-}
-
-export function initInstallButton(button) {
-  let deferred = null;
-  window.addEventListener('beforeinstallprompt', (e) => {
-    e.preventDefault();
-    deferred = e;
-    button.hidden = false;
-  });
-  button.addEventListener('click', async () => {
-    if (!deferred) return;
-    deferred.prompt();
-    await deferred.userChoice;
-    deferred = null;
-    button.hidden = true;
-  });
-  window.addEventListener('appinstalled', () => {
-    button.hidden = true;
-    toast('Application installée.', 'success');
-  });
 }

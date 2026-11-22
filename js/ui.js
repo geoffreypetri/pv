@@ -149,6 +149,40 @@ export async function copyText(text, btn) {
   }
 }
 
+/**
+ * Valeur cliquable qui se copie dans le presse-papiers (ex. n° de commande, n° de BR).
+ * Le clic ne se propage pas (n'ouvre pas la fiche de la ligne).
+ */
+export function copyable(text, { title = 'Cliquer pour copier' } = {}) {
+  const el = h('button', { type: 'button', class: 'copyable', title, text });
+  el.addEventListener('click', (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    copyValue(text, el);
+  });
+  return el;
+}
+
+/** Champ de saisie accompagné d'un bouton « Copier » (copie la valeur actuelle). */
+export function withCopy(input) {
+  const btn = h('button', { type: 'button', class: 'btn btn-small input-copy-btn', text: 'Copier', title: 'Copier la valeur' });
+  const sync = () => { btn.disabled = !input.value.trim(); };
+  input.addEventListener('input', sync);
+  sync();
+  btn.addEventListener('click', (e) => { e.preventDefault(); copyText(input.value.trim(), btn); });
+  return h('div', { class: 'input-copy' }, input, btn);
+}
+
+async function copyValue(text, el) {
+  try {
+    await navigator.clipboard.writeText(text);
+    el.classList.add('copied');
+    setTimeout(() => el.classList.remove('copied'), 1200);
+  } catch {
+    toast('Copie impossible : autorisez l\'accès au presse-papiers.', 'error');
+  }
+}
+
 /** Ouvre le sélecteur de fichiers et résout avec le fichier choisi (ou null). */
 export function pickFile(accept) {
   return new Promise((resolve) => {

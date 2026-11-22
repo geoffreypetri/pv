@@ -1,6 +1,6 @@
 // Actions sur une ligne : dépôt de PV, ouverture, validation, fiche « Prêt pour SAP », détail.
 
-import { h, modal, confirmDialog, field, copyText, toast, pickFile } from './ui.js';
+import { h, modal, confirmDialog, field, copyText, toast, pickFile, copyable, withCopy } from './ui.js';
 import { state, mutate, assertWritable, findLine } from './store.js';
 import * as S from './storage.js';
 import * as M from './model.js';
@@ -28,7 +28,8 @@ function summary(line) {
   return h('dl', { class: 'summary' },
     h('dt', { text: 'Collaborateur' }), h('dd', { text: line.collaborateur }),
     h('dt', { text: 'Fournisseur' }), h('dd', { text: line.fournisseur }),
-    h('dt', { text: 'Commande' }), h('dd', { text: line.commande + (line.poste ? ` / poste ${line.poste}` : '') }),
+    h('dt', { text: 'Commande' }), h('dd', {}, copyable(line.commande, { title: 'Copier le n° de commande' })),
+    line.poste ? [h('dt', { text: 'Poste' }), h('dd', { text: line.poste })] : null,
     h('dt', { text: 'Mois' }), h('dd', { text: monthLabel(line.mois) }),
     h('dt', { text: 'Montant attendu' }), h('dd', { text: formatEuro(line.montantAttendu) }));
 }
@@ -173,8 +174,8 @@ export async function sapSheet(lineId) {
         copyRow('Montant', formatForSap(montant), `${formatEuro(montant)}  (copié : ${formatForSap(montant)})`)),
       tpl ? h('p', {}, h('a', { href: M.fillTemplate(tpl, line), target: '_blank', rel: 'noopener noreferrer', class: 'btn btn-small' }, 'Ouvrir la commande dans SAP ↗')) : null,
       editable
-        ? h('div', { class: 'form-grid' }, field('N° de BR', br), field('Date du BR', date))
-        : line.numeroBR ? h('p', {}, `BR ${line.numeroBR} du ${formatDate(line.dateBR)}`) : null),
+        ? h('div', { class: 'form-grid' }, field('N° de BR', withCopy(br)), field('Date du BR', date))
+        : line.numeroBR ? h('p', {}, 'BR ', copyable(line.numeroBR, { title: 'Copier le n° de BR' }), ` du ${formatDate(line.dateBR)}`) : null),
     buttons: editable
       ? [
         { label: 'Plus tard', value: null },
@@ -231,7 +232,7 @@ function lineForm(line) {
     list,
     field('Collaborateur *', f.collaborateur),
     field('Fournisseur *', f.fournisseur),
-    field('N° de commande *', f.commande),
+    field('N° de commande *', withCopy(f.commande)),
     field('Poste', f.poste),
     field('Montant attendu (€) *', f.montantAttendu),
     h('div', { class: 'span-2' }, field('Commentaire', f.commentaire)));
@@ -331,7 +332,7 @@ export async function lineDetail(lineId) {
     h('h3', { text: 'PV et BR' }),
     h('div', { class: 'form-grid' },
       h('div', { class: 'span-2' }, field('Montant du PV (€)', pvAmount.wrap, canEditPV ? '' : 'Modifiable quand la ligne est « PV reçu » ou « Litige ».')),
-      field('N° de BR', brNum),
+      field('N° de BR', withCopy(brNum)),
       field('Date du BR', brDate)),
     h('h3', { text: 'Historique' }),
     history);

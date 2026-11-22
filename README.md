@@ -32,8 +32,8 @@ sur le réseau, stockée dans le dépôt ou mise en cache par le navigateur. Pas
 ## 1. Installer l'application
 
 1. Ouvrir dans Edge l'adresse de l'application : `https://<utilisateur>.github.io/<dépôt>/`.
-2. Cliquer sur **« Installer l'application »** en haut à droite (ou sur l'icône ⊕ « Application disponible » de la
-   barre d'adresse, ou menu `…` → *Applications* → *Installer Suivi PV*).
+2. Cliquer sur l'icône **« Application disponible »** (⊕) à droite de la barre d'adresse, ou passer par le menu `…`
+   → *Applications* → *Installer Suivi PV*.
 3. L'application s'ouvre dans sa propre fenêtre et apparaît dans le menu Démarrer. Elle fonctionne aussi hors ligne.
 
 Les mises à jour arrivent toutes seules : quand une nouvelle version est publiée, une bannière
@@ -83,6 +83,9 @@ historique daté des changements de statut, retour à l'étape précédente en c
 **Ajouter une ligne** permet de créer une ligne manuellement (prestation absente de l'export).
 
 Chaque modification est **enregistrée automatiquement** dans `data.json` (état affiché dans le pied de page).
+
+Le **n° de commande** et le **n° de BR** se copient d'un simple clic, dans le tableau comme dans les fiches
+(un repère « Copié ✓ » confirme la copie) ; les champs de saisie correspondants ont un bouton **Copier**.
 
 ## 4. Sauvegarde des données
 
