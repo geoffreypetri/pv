@@ -35,8 +35,8 @@ export const CYCLE = Object.freeze(['attendu', 'pv_recu', 'valide', 'br_cree']);
 export const IMPORT_FIELDS = Object.freeze([
   { key: 'collaborateur', label: 'Collaborateur', required: true },
   { key: 'fournisseur', label: 'Fournisseur', required: true },
-  { key: 'commande', label: 'N° de commande', required: true, hint: 'Peut contenir « commande-poste-libellé ».' },
-  { key: 'poste', label: 'Poste de commande', required: false },
+  { key: 'commande', label: 'N° de commande', required: true, hint: 'Format Abraxio « commande-poste-libellé » : le poste (10, 20…) est extrait automatiquement.' },
+  { key: 'poste', label: 'Poste de commande', required: false, hint: 'Facultatif : le poste est lu dans « commande-poste » quand il y figure.' },
   { key: 'montantAttendu', label: 'Montant HT', required: true },
   { key: 'debut', label: 'Début de période (De)', required: false },
   { key: 'fin', label: 'Fin de période (A)', required: false },

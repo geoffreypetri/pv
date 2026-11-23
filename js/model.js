@@ -303,7 +303,8 @@ export function mapRows(rows, mapping, { firstRowNumber = 2 } = {}) {
       collaborateur: String(get(row, 'collaborateur') ?? '').trim(),
       fournisseur: String(get(row, 'fournisseur') ?? '').trim(),
       commande: cmd.commande,
-      poste: posteCol || cmd.poste,
+      // Le poste lu dans « commande-poste » (format Abraxio) prime sur une éventuelle colonne Poste.
+      poste: cmd.poste || posteCol,
       prestation: cmd.prestation,
       montant: null,
       quantite: num(get(row, 'quantite')),

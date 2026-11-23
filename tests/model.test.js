@@ -135,6 +135,15 @@ test('correspondance automatique : format simple et correspondance mémorisée p
   assert.equal(M.guessMapping(headers, { collaborateur: 'Divers' }).collaborateur, 'Divers');
 });
 
+test('poste : extrait de « commande-poste », prioritaire sur une colonne Poste', () => {
+  const m = { collaborateur: 'C', fournisseur: 'F', commande: 'N', poste: 'P', montantAttendu: 'T' };
+  const r = (N, P) => M.mapRows([{ C: 'Alice', F: 'Alpha', N, P, T: 100 }], m).valid[0].fields;
+  assert.deepEqual([r('3000000101-20-Prestation', '').commande, r('3000000101-20-Prestation', '').poste], ['3000000101', '20']);
+  assert.equal(r('3000000101-20-Prestation', '99').poste, '20');
+  assert.equal(r('3000000101-10', '').poste, '10');
+  assert.equal(r('3000000101', '30').poste, '30'); // pas de poste dans la commande : colonne Poste
+});
+
 test('parseCommande : « commande-poste-libellé »', () => {
   assert.deepEqual(M.parseCommande('3000000101-10-Prestation de Développement Full stack'),
     { commande: '3000000101', poste: '10', prestation: 'Prestation de Développement Full stack' });

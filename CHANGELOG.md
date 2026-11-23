@@ -15,6 +15,7 @@ Notez les changements à venir sous `## [Non publié]` : `node scripts/release.m
 - Vue à plat : un seul tableau avec colonne Mois, filtres Année, Mois, Fournisseur et Statut à choix multiples
 - Tri par colonne ; l'export Excel reprend les lignes affichées
 - Interface harmonisée (boutons, listes, champs, icônes) et copie par icône au survol des champs
+- Le poste extrait de « commande-poste » (ex. 3000000101-20) prime sur une éventuelle colonne Poste
 
 ## [0.3.0] - 2026-11-23
 - Import de l'export Abraxio par période (colonnes De et A), feuille « Données Consommé » détectée automatiquement
