@@ -6,7 +6,7 @@
 //   2. ajouter MIGRATIONS[nouvelleVersion] = (data) => data transformé,
 //   3. ajouter un test dans tests/schema.test.js.
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export const STATUTS = Object.freeze({
   ATTENDU: 'attendu',
@@ -27,19 +27,30 @@ export const STATUT_LABELS = Object.freeze({
 /** Ordre « normal » du cycle de vie (le litige est possible à tout moment). */
 export const CYCLE = Object.freeze(['attendu', 'pv_recu', 'valide', 'br_cree']);
 
-/** Champs de l'app alimentés par l'import Abraxio. */
+/**
+ * Champs de l'app alimentés par l'import Abraxio (« Données Consommé ») :
+ * une ligne du fichier = une imputation (collaborateur, période, jours × tarif = montant).
+ * Les imputations d'une même période sont additionnées par collaborateur × commande × poste.
+ */
 export const IMPORT_FIELDS = Object.freeze([
   { key: 'collaborateur', label: 'Collaborateur', required: true },
   { key: 'fournisseur', label: 'Fournisseur', required: true },
-  { key: 'commande', label: 'N° de commande', required: true },
+  { key: 'commande', label: 'N° de commande', required: true, hint: 'Peut contenir « commande-poste-libellé ».' },
   { key: 'poste', label: 'Poste de commande', required: false },
-  { key: 'montantAttendu', label: 'Montant attendu', required: true },
+  { key: 'montantAttendu', label: 'Montant HT', required: true },
+  { key: 'debut', label: 'Début de période (De)', required: false },
+  { key: 'fin', label: 'Fin de période (A)', required: false },
+  { key: 'quantite', label: 'Quantité (jours)', required: false },
+  { key: 'prixUnitaire', label: 'Prix unitaire HT', required: false },
+  { key: 'libelle', label: 'Libellé du détail', required: false, hint: 'Ex. ligne budgétaire, affiché dans le détail.' },
 ]);
 
 export function defaultConfig() {
   return {
     // Correspondance champ de l'app → en-tête de colonne du fichier importé.
     importMapping: {},
+    // Feuille du classeur à importer (mémorisée avec la correspondance).
+    importSheet: '',
     // Écart toléré (en euros) avant de signaler une différence PV / attendu.
     toleranceEcart: 0,
     // Modèles d'URL SAP (optionnels, jamais codés en dur). Variables : {commande} {poste} {br}
@@ -71,6 +82,13 @@ export function normalizeLine(l) {
     commande: l.commande ?? '',
     poste: l.poste ?? '',
     montantAttendu: l.montantAttendu ?? null,
+    // Libellé de la prestation (ex. extrait de « 3000000101-10-Prestation de … »).
+    prestation: l.prestation ?? '',
+    // Total des jours importés et période couverte (« De » / « A »).
+    jours: l.jours ?? null,
+    periode: l.periode ?? null,
+    // Imputations additionnées pour obtenir le montant attendu : { libelle, quantite, prixUnitaire, montant, ligne }.
+    details: Array.isArray(l.details) ? l.details : [],
     montantPV: l.montantPV ?? null,
     statut: l.statut ?? STATUTS.ATTENDU,
     numeroBR: l.numeroBR ?? '',
@@ -103,6 +121,18 @@ export const MIGRATIONS = {
       commandes: d.commandes && typeof d.commandes === 'object' ? d.commandes : {},
     };
   },
+  // v2 : import par période avec détail des imputations additionnées.
+  2: (d) => ({
+    ...d,
+    config: { importSheet: '', ...d.config },
+    lignes: (Array.isArray(d.lignes) ? d.lignes : []).map((l) => ({
+      ...l,
+      prestation: l.prestation ?? '',
+      jours: l.jours ?? null,
+      periode: l.periode ?? null,
+      details: Array.isArray(l.details) ? l.details : [],
+    })),
+  }),
 };
 
 /**

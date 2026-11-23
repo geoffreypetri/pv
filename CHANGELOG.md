@@ -6,6 +6,15 @@ Notez les changements à venir sous `## [Non publié]` : `node scripts/release.m
 
 ## [Non publié]
 
+## [0.3.0] - 2026-11-23
+- Import de l'export Abraxio par période (colonnes De et A), feuille « Données Consommé » détectée automatiquement
+- Les imputations d'une période sont additionnées par collaborateur et commande, avec le détail listé pour vérification
+- N° de commande et poste lus dans « Numéros de commande associés » (format commande-poste-libellé)
+- Jours et détail des imputations visibles dans le tableau, la fiche de la ligne et l'export Excel (feuille « Détail »)
+- Lignes sans commande (profils internes) ou sans collaborateur (factures) ignorées et décomptées
+- Correction : les dates Excel ne glissent plus d'un jour selon le fuseau horaire
+- Au démarrage, affichage du dernier mois renseigné si le mois courant est vide
+
 ## [0.2.1] - 2026-11-22
 - N° de commande et n° de BR copiables d'un clic dans le tableau et les fiches
 - Colonne Commande : le poste s'affiche seul sous le n° de commande

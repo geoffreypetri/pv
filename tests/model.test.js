@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import * as M from '../js/model.js';
-import { parseAmount, formatEuro, formatForSap, safeFilePart, addMonths, monthLabel } from '../js/format.js';
+import { parseAmount, parseDay, formatEuro, formatForSap, safeFilePart, addMonths, monthLabel } from '../js/format.js';
 
 const mk = (over = {}) => M.createLine(
   { collaborateur: 'Alice Martin', fournisseur: 'Société Fictive & Cie', commande: '4500000001', poste: '10', montantAttendu: 1000, ...over },
@@ -105,60 +105,133 @@ test('compteurs, filtres et tri', () => {
   assert.equal(M.sortLines([a, b])[0], b); // « à valider » avant « attendu »
 });
 
-test('correspondance automatique des colonnes', () => {
+test('correspondance automatique : format Abraxio « Données Consommé »', () => {
+  const headers = ['Id Commande', 'Type facture', 'Fournisseur', 'Ref Fournisseur', 'Id collaborateur', 'Collaborateur',
+    'Numéros de commande associés', 'Libellé', 'Montant HT', 'P.U.H.T.', 'Par', 'Quantité', 'De', 'A', 'Total HT',
+    'Début période', 'Fin période', 'Total période HT', 'Commande', 'Ref Commande', 'Libellé budget', 'Fournisseur budget'];
+  const row = Object.fromEntries(headers.map((h) => [h, '']));
+  Object.assign(row, { Fournisseur: 'Alpha-1', Collaborateur: 'Alice', 'Numéros de commande associés': '3000000001-10-Dev', 'Montant HT': 0,
+    'P.U.H.T.': 500, Quantité: 2, De: '2026-10-01', A: '2026-10-31', 'Total HT': 1000, 'Libellé budget': 'Run' });
+  const m = M.guessMapping(headers, {}, [row]);
+  assert.equal(m.collaborateur, 'Collaborateur');
+  assert.equal(m.fournisseur, 'Fournisseur');
+  assert.equal(m.commande, 'Numéros de commande associés'); // « Commande » est vide
+  assert.equal(m.montantAttendu, 'Total HT');
+  assert.equal(m.debut, 'De');
+  assert.equal(m.fin, 'A');
+  assert.equal(m.quantite, 'Quantité');
+  assert.equal(m.prixUnitaire, 'P.U.H.T.');
+  assert.equal(m.libelle, 'Libellé budget');
+  assert.equal(m.poste, undefined);
+});
+
+test('correspondance automatique : format simple et correspondance mémorisée prioritaire', () => {
   const headers = ['Nom ressource', 'Fournisseur', 'N° commande', 'Poste', 'Montant mensuel HT', 'Divers'];
   const m = M.guessMapping(headers);
   assert.equal(m.collaborateur, 'Nom ressource');
-  assert.equal(m.fournisseur, 'Fournisseur');
   assert.equal(m.commande, 'N° commande');
   assert.equal(m.poste, 'Poste');
   assert.equal(m.montantAttendu, 'Montant mensuel HT');
-  // La correspondance mémorisée est prioritaire
   assert.equal(M.guessMapping(headers, { collaborateur: 'Divers' }).collaborateur, 'Divers');
 });
 
-test('mapRows : lignes valides, invalides, vides ; colonnes source conservées', () => {
-  const mapping = { collaborateur: 'C', fournisseur: 'F', commande: 'N', poste: 'P', montantAttendu: 'M' };
-  const rows = [
-    { C: 'Alice', F: 'F1', N: 4500000001, P: 10, M: '1 000,00', X: 'jours: 20' },
-    { C: '', F: 'F1', N: '1', P: '', M: '10' },
-    { C: '', F: '', N: '', P: '', M: '' },
-    { C: 'Bob', F: 'F2', N: '2', P: '', M: 'n/a' },
-  ];
-  const { valid, invalid } = M.mapRows(rows, mapping);
-  assert.equal(valid.length, 1);
-  assert.equal(valid[0].fields.commande, '4500000001');
-  assert.equal(valid[0].fields.montantAttendu, 1000);
-  assert.deepEqual(valid[0].source, { X: 'jours: 20' });
-  assert.equal(invalid.length, 2);
-  assert.equal(invalid[0].rowNumber, 3);
-  assert.match(invalid[1].errors[0], /illisible/);
+test('parseCommande : « commande-poste-libellé »', () => {
+  assert.deepEqual(M.parseCommande('3000000101-10-Prestation de Développement Full stack'),
+    { commande: '3000000101', poste: '10', prestation: 'Prestation de Développement Full stack' });
+  assert.deepEqual(M.parseCommande('4500000001'), { commande: '4500000001', poste: '', prestation: '' });
+  assert.deepEqual(M.parseCommande(4500000001), { commande: '4500000001', poste: '', prestation: '' });
+  assert.deepEqual(M.parseCommande(''), { commande: '', poste: '', prestation: '' });
 });
 
-test('détection des doublons (collaborateur + commande + mois)', () => {
+test('parseDay : formats de date sans décalage de fuseau', () => {
+  assert.equal(parseDay('2026-10-01'), '2026-10-01');
+  assert.equal(parseDay('01/10/2026'), '2026-10-01');
+  assert.equal(parseDay(46296), '2026-10-01'); // numéro de série Excel
+  assert.equal(parseDay(new Date(2026, 9, 1)), '2026-10-01');
+  assert.equal(parseDay(''), '');
+  assert.equal(parseDay('31/02/2026'), null);
+  assert.equal(parseDay('n/a'), null);
+});
+
+const MAP = { collaborateur: 'C', fournisseur: 'F', commande: 'N', montantAttendu: 'T', debut: 'De', fin: 'A', quantite: 'Q', prixUnitaire: 'PU', libelle: 'L' };
+const R = (C, N, T, Q, L, De = '2026-10-01', A = '2026-10-31', F = 'Alpha-1') => ({ C, F, N, T, Q, PU: Q ? T / Q : '', L, De, A, X: 'autre' });
+const ROWS = [
+  R('Alice', '3000000001-10-Dev', 1000, 2, 'Run'),
+  R('Alice', '3000000001-10-Dev', 2500, 5, 'Projet A'),
+  R('Alice', '3000000001-10-Dev', 500.25, 1, 'Projet B'),
+  R('Bruno', '3000000002-20-Expertise', 4400, 8, 'Run', '2026-10-01', '2026-10-31', 'Beta-2'),
+  R('Alice', '3000000001-10-Dev', 900, 2, 'Run', '2026-09-01', '2026-09-30'),
+  R('Interne', '', 1650.45, 2.86, 'MO interne', '2026-10-01', '2026-10-31', ''),
+  R('', '', 475, '', 'Provision astreinte'),
+  { C: '', F: '', N: '', T: '', Q: '', PU: '', L: '', De: '', A: '', X: '' },
+];
+
+test('mapRows : lignes valides, motifs de rejet, colonnes source conservées', () => {
+  const { valid, invalid } = M.mapRows(ROWS, MAP);
+  assert.equal(valid.length, 5);
+  assert.equal(valid[0].fields.commande, '3000000001');
+  assert.equal(valid[0].fields.poste, '10');
+  assert.equal(valid[0].fields.prestation, 'Dev');
+  assert.deepEqual(valid[0].source, { X: 'autre' });
+  assert.equal(invalid.length, 2); // la ligne vide est ignorée silencieusement
+  assert.deepEqual(M.summarizeInvalid(invalid).map((x) => x.motif), ['sans n° de commande, sans fournisseur', 'sans collaborateur, sans n° de commande']);
+  assert.equal(invalid[0].rowNumber, 7);
+});
+
+test('périodes détectées, de la plus récente à la plus ancienne', () => {
+  const { valid } = M.mapRows(ROWS, MAP);
+  const p = M.listPeriods(valid);
+  assert.deepEqual(p.map((x) => `${x.debut}>${x.fin}:${x.lignes}`), ['2026-10-01>2026-10-31:4', '2026-09-01>2026-09-30:1']);
+  assert.equal(p[0].mois, '2026-10');
+  assert.equal(p[0].montant, 8400.25);
+});
+
+test('agrégation par période : somme des imputations, détail conservé', () => {
+  const { valid } = M.mapRows(ROWS, MAP);
+  const items = M.aggregate(valid, { debut: '2026-10-01', fin: '2026-10-31' });
+  assert.equal(items.length, 2);
+  const alice = items.find((i) => i.fields.collaborateur === 'Alice');
+  assert.equal(alice.fields.montantAttendu, 4000.25);
+  assert.equal(alice.fields.jours, 8);
+  assert.deepEqual(alice.fields.periode, { debut: '2026-10-01', fin: '2026-10-31' });
+  assert.deepEqual(alice.details.map((d) => d.libelle), ['Run', 'Projet A', 'Projet B']);
+  assert.deepEqual(alice.details.map((d) => d.montant), [1000, 2500, 500.25]);
+  assert.equal(alice.details[0].prixUnitaire, 500);
+  // Sans période : tout le fichier
+  assert.equal(M.aggregate(valid, null).find((i) => i.fields.collaborateur === 'Alice').fields.montantAttendu, 4900.25);
+  const l = M.lineFromImport(alice, '2026-10', 'imp');
+  assert.equal(l.statut, 'attendu');
+  assert.equal(l.details.length, 3);
+  assert.equal(l.jours, 8);
+  assert.equal(l.prestation, 'Dev');
+});
+
+test('détection des doublons (collaborateur + commande + poste + mois)', () => {
   const existing = [mk()];
-  const rows = [
-    { fields: { collaborateur: 'alice  MARTIN', fournisseur: 'X', commande: '4500000001', poste: '10', montantAttendu: 1200 } },
+  const items = [
+    { fields: { collaborateur: 'alice  MARTIN', fournisseur: 'X', commande: '4500000001', poste: '10', montantAttendu: 1200, jours: 2 } },
+    { fields: { collaborateur: 'Alice Martin', fournisseur: 'X', commande: '4500000001', poste: '20', montantAttendu: 1200 } },
     { fields: { collaborateur: 'Chloé', fournisseur: 'X', commande: '4500000002', poste: '', montantAttendu: 500 } },
     { fields: { collaborateur: 'Chloe', fournisseur: 'X', commande: '4500000002', poste: '', montantAttendu: 500 } },
   ];
-  const plan = M.planImport(existing, rows, '2026-11');
-  assert.equal(plan.nouvelles.length, 1);
+  const plan = M.planImport(existing, items, '2026-11');
+  assert.equal(plan.nouvelles.length, 2);
   assert.equal(plan.doublons.length, 2);
   assert.equal(plan.doublons[0].existing, existing[0]);
-  assert.deepEqual(plan.doublons[0].changes.map((c) => c.champ), ['fournisseur', 'montantAttendu']);
+  assert.deepEqual(plan.doublons[0].changes.map((c) => c.champ), ['fournisseur', 'montantAttendu', 'jours']);
   assert.equal(plan.doublons[1].inFile, true);
-  // Autre mois : pas de doublon
-  assert.equal(M.planImport(existing, rows, '2026-12').nouvelles.length, 2);
+  assert.equal(M.planImport(existing, items, '2026-12').nouvelles.length, 3);
 });
 
-test('mise à jour par import : statut et PV conservés', () => {
+test('mise à jour par import : statut et PV conservés, détail remplacé', () => {
   const l = mk();
   M.applyPV(l, { fichierPV: 'x.pdf', montantPV: 1000 });
-  M.updateFromImport(l, { fournisseur: 'Nouveau', poste: '20', montantAttendu: 1100 }, 'imp1');
+  M.updateFromImport(l, { fournisseur: 'Nouveau', poste: '20', montantAttendu: 1100, jours: 2 }, 'imp1', [{ libelle: 'Run', montant: 1100 }]);
   assert.equal(l.statut, 'pv_recu');
   assert.equal(l.fichierPV, 'x.pdf');
   assert.equal(l.montantAttendu, 1100);
+  assert.equal(l.jours, 2);
+  assert.equal(l.details.length, 1);
   assert.equal(M.computeEcart(l), -100);
 });
 
@@ -176,4 +249,12 @@ test('modèle d\'URL SAP', () => {
   const l = mk();
   assert.equal(M.fillTemplate('https://sap.example/po?n={commande}&p={poste}', l), 'https://sap.example/po?n=4500000001&p=10');
   assert.equal(M.fillTemplate('', l), '');
+});
+
+test('mois affiché au démarrage', () => {
+  const L = (mois) => ({ mois });
+  assert.equal(M.defaultMonth([L('2026-10'), L('2026-11')], '2026-11'), '2026-11');
+  assert.equal(M.defaultMonth([L('2026-09'), L('2026-10')], '2026-11'), '2026-10');
+  assert.equal(M.defaultMonth([L('2027-01')], '2026-11'), '2027-01');
+  assert.equal(M.defaultMonth([], '2026-11'), '2026-11');
 });

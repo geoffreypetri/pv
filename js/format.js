@@ -129,3 +129,44 @@ export function safeFilePart(s, maxLength = 40) {
     .replace(/-+$/g, '');
   return cleaned || 'inconnu';
 }
+
+/**
+ * Normalise une date en « AAAA-MM-JJ » : objet Date, « AAAA-MM-JJ… », « JJ/MM/AAAA »
+ * ou numéro de série Excel. Retourne '' si vide, null si illisible.
+ */
+export function parseDay(value) {
+  if (value === null || value === undefined || value === '') return '';
+  if (value instanceof Date) {
+    if (Number.isNaN(value.getTime())) return null;
+    return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+  }
+  if (typeof value === 'number') {
+    if (value < 1 || value > 2958465) return null;
+    const d = new Date(Date.UTC(1899, 11, 30) + Math.round(value) * 86400000);
+    return `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}`;
+  }
+  const s = String(value).trim();
+  let m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (m) return valid(+m[1], +m[2], +m[3]);
+  m = s.match(/^(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})/);
+  if (m) return valid(+m[3], +m[2], +m[1]);
+  return null;
+}
+
+function valid(y, m, d) {
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  if (dt.getUTCFullYear() !== y || dt.getUTCMonth() !== m - 1 || dt.getUTCDate() !== d) return null;
+  return `${y}-${pad(m)}-${pad(d)}`;
+}
+
+/** « 2026-10-01 » → « 01/10/2026 ». */
+export function formatDay(day) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(day || '');
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : day || '';
+}
+
+/** Formate un nombre de jours : 12 → « 12 j », 2.86 → « 2,86 j ». */
+export function formatJours(n) {
+  if (n === null || n === undefined || Number.isNaN(Number(n))) return '';
+  return `${new Intl.NumberFormat('fr-FR', { maximumFractionDigits: 2 }).format(Number(n))} j`;
+}

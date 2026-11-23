@@ -58,7 +58,8 @@ n'a pas de saisie en cours (l'application ne se recharge jamais d'elle-même).
 3. Aux lancements suivants, le dossier est retrouvé automatiquement. Edge peut redemander l'autorisation d'accès :
    cliquer sur **« Ouvrir « Suivi-PV » »** puis accepter.
 
-Pour essayer sans vraies données, importer le fichier `exemple-abraxio.xlsx` fourni (10 lignes fictives).
+Pour essayer sans vraies données, importer le fichier `exemple-abraxio.xlsx` fourni : un export fictif qui reproduit la
+structure de l'export Abraxio (feuille « Données Consommé », deux périodes, 10 collaborateurs).
 
 ## 3. Déroulé mensuel
 
@@ -67,12 +68,38 @@ Statuts d'une ligne (un collaborateur × un mois) :
 
 | Étape | Action dans l'application |
 |---|---|
-| **1. Import** (début de mois) | **Importer Abraxio…** → choisir l'export Excel/CSV → vérifier la correspondance des colonnes (mémorisée pour la suite) → choisir le **mois concerné** → **Analyser** → traiter les éventuels doublons (même collaborateur + commande + mois : *Ignorer* ou *Mettre à jour*) → **Importer**. Les lignes sont créées au statut « Attendu » et le fichier brut est copié dans `imports/`. |
+| **1. Import** (début de mois) | **Importer Abraxio…** → choisir l'export Excel (voir ci-dessous) → vérifier la feuille et les colonnes (mémorisées pour la suite) → **Suivant** → choisir la **période** (De → A) → vérifier les sommes (cliquer sur une ligne pour voir les imputations additionnées) et les lignes déjà présentes (*Ignorer* ou *Mettre à jour*) → **Importer**. Les lignes sont créées au statut « Attendu » pour le mois du début de période, et le fichier brut est copié dans `imports/`. |
 | **2. Réception des PV** | **Glisser-déposer le PDF sur la ligne** du collaborateur (ou bouton *Déposer le PV…*). Saisir le montant figurant sur le PV : l'écart avec le montant attendu s'affiche en direct. Le PDF est copié dans `PV/AAAA-MM/` sous le nom `AAAA-MM_Fournisseur_Collaborateur.pdf`. La ligne passe à « PV reçu » ; un écart non nul apparaît en rouge. L'icône 📄 rouvre le PV. |
 | **3. Validation** | Bouton **Valider** (confirmation demandée en cas d'écart). La fiche **« Prêt pour SAP »** s'ouvre : n° de commande, poste et montant, chacun avec un bouton **Copier** (le montant est copié au format `1234,50`). |
 | **4. BR dans SAP** | Créer le BR dans SAP, puis saisir le **n° de BR** (et sa date) dans la fiche → la ligne passe à « BR créé ». |
 | **Litige** | Cliquer sur la ligne → **Signaler un litige** (motif conservé dans le commentaire et l'historique). **Lever le litige** ramène la ligne à son statut précédent. |
 | **Fin de mois** | **Exporter Excel** : classeur du mois sélectionné avec toutes les colonnes utiles (montants, écart, statut, BR, dates, chemin du PV, commentaire). |
+
+### L'export Abraxio
+
+Exporter le budget depuis Abraxio, puis l'importer tel quel. L'application lit la feuille **« Données Consommé »** :
+une ligne = une imputation de temps d'un collaborateur sur une période (colonnes **De** et **A**), avec
+`Quantité` (jours) × `P.U.H.T.` = `Total HT`, ventilée par ligne budgétaire.
+
+| Champ de l'application | Colonne Abraxio |
+|---|---|
+| Collaborateur | `Collaborateur` |
+| Fournisseur | `Fournisseur` |
+| N° de commande et poste | `Numéros de commande associés` (format `3000000101-10-Prestation de …` : commande, poste, libellé) |
+| Montant HT | `Total HT` |
+| Période | `De` et `A` |
+| Jours / prix unitaire | `Quantité` / `P.U.H.T.` |
+| Libellé du détail | `Libellé budget` |
+
+À l'import d'une période, les imputations sont **additionnées par collaborateur × commande × poste** : le montant
+attendu est la somme des `Total HT`, les jours la somme des `Quantité`. Chaque imputation reste listée (libellé, jours,
+prix unitaire, montant, n° de ligne dans le fichier) dans l'écran d'import, dans la fiche de la ligne et dans la
+feuille « Détail » de l'export Excel, pour pouvoir vérifier.
+
+Sont ignorées (et décomptées dans l'écran d'import) : les lignes **sans n° de commande** (profils internes) et
+**sans collaborateur** (factures, par exemple les provisions d'astreinte).
+
+Un fichier plus simple (une ligne par collaborateur, sans colonnes De/A) reste accepté : le mois est alors demandé.
 
 Le **tableau de bord** affiche, pour le mois choisi (sélecteur ◀ ▶ en haut) : les compteurs par statut (cliquables pour
 filtrer), l'avancement des BR, la file **« À faire »** (PV manquants / à valider / BR à créer / litiges), la recherche
@@ -218,35 +245,46 @@ exemple-abraxio.xlsx    export fictif pour les essais
 
 ```jsonc
 {
-  "schemaVersion": 1,                         // version du format (voir js/schema.js)
+  "schemaVersion": 2,                         // version du format (voir js/schema.js)
   "app": { "creeAvec": "0.1.0", "creeLe": "…", "enregistreAvec": "0.1.0", "enregistreLe": "…" },
   "config": {
     "importMapping": {                        // champ de l'app ← en-tête de colonne du fichier importé
-      "collaborateur": "Ressource", "fournisseur": "Fournisseur", "commande": "N° commande",
-      "poste": "Poste", "montantAttendu": "Montant mensuel HT"
+      "collaborateur": "Collaborateur", "fournisseur": "Fournisseur",
+      "commande": "Numéros de commande associés", "montantAttendu": "Total HT",
+      "debut": "De", "fin": "A", "quantite": "Quantité", "prixUnitaire": "P.U.H.T.", "libelle": "Libellé budget"
     },
+    "importSheet": "Données Consommé",       // feuille importée
     "toleranceEcart": 0,                      // écart toléré en euros avant signalement
     "sapUrlTemplates": { "commande": "", "br": "" }   // modèles d'URL facultatifs : {commande} {poste} {br}
   },
   "imports": [
-    { "id": "…", "date": "2026-11-03T09:12:00.000Z", "mois": "2026-11", "fichierOrigine": "export.xlsx",
-      "copie": "imports/2026-11_20261103-091200_export.xlsx",
+    { "id": "…", "date": "2026-11-03T09:12:00.000Z", "mois": "2026-10", "fichierOrigine": "export.xlsx",
+      "periode": { "debut": "2026-10-01", "fin": "2026-10-31" }, "feuille": "Données Consommé",
+      "copie": "imports/2026-10_20261103-091200_export.xlsx",
       "lignesCreees": 48, "lignesMisesAJour": 0, "lignesIgnorees": 2 }
   ],
   "lignes": [
     {
       "id": "3f0c…",                          // UUID
-      "mois": "2026-11",
+      "mois": "2026-10",
       "collaborateur": "Alice Exemple",
-      "fournisseur": "Prestataire Alpha",
-      "commande": "4500000101",
+      "fournisseur": "PRESTATAIRE ALPHA-100001",
+      "commande": "3000000101",
       "poste": "10",
-      "montantAttendu": 9450,                 // euros (nombre, 2 décimales)
+      "prestation": "Prestation de Développement Full stack",
+      "periode": { "debut": "2026-10-01", "fin": "2026-10-31" },   // colonnes De / A
+      "jours": 19,                            // somme des jours importés
+      "montantAttendu": 9880,                 // euros (nombre, 2 décimales) = somme des imputations
+      "details": [                            // imputations additionnées (pour vérification)
+        { "libelle": "Run - Application A", "quantite": 5.5, "prixUnitaire": 520, "montant": 2860, "ligne": 24 },
+        { "libelle": "Projet Migration", "quantite": 11, "prixUnitaire": 520, "montant": 5720, "ligne": 25 },
+        { "libelle": "Projet Supervision", "quantite": 2.5, "prixUnitaire": 520, "montant": 1300, "ligne": 26 }
+      ],
       "montantPV": 9450,                      // null tant que le PV n'est pas reçu ; l'écart est calculé
       "statut": "br_cree",                    // attendu | pv_recu | valide | br_cree | litige
       "numeroBR": "5000123456",
       "dateBR": "2026-11-22",
-      "fichierPV": "PV/2026-11/2026-11_Prestataire-Alpha_Alice-Exemple.pdf",
+      "fichierPV": "PV/2026-10/2026-10_PRESTATAIRE-ALPHA-100001_Alice-Exemple.pdf",
       "commentaire": "",
       "historique": [                         // changements de statut datés
         { "date": "2026-11-03T09:12:00.000Z", "statut": "attendu", "detail": "Import" },
@@ -255,7 +293,7 @@ exemple-abraxio.xlsx    export fictif pour les essais
         { "date": "2026-11-22T14:30:00.000Z", "statut": "br_cree", "detail": "BR 5000123456" }
       ],
       "importId": "…",                        // import d'origine
-      "source": { "Jours prévus": 21 },       // colonnes non mappées de l'export (pour les évolutions)
+      "source": { "Type facture": "Temps" },  // colonnes non mappées de la 1re imputation (pour les évolutions)
       "creeLe": "…", "modifieLe": "…"
     }
   ],

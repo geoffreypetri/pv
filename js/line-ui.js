@@ -5,7 +5,8 @@ import { state, mutate, assertWritable, findLine } from './store.js';
 import * as S from './storage.js';
 import * as M from './model.js';
 import { STATUTS, STATUT_LABELS } from './schema.js';
-import { formatEuro, formatForSap, formatDate, formatDateTime, parseAmount, monthLabel, isoDay, isValidMonth } from './format.js';
+import { formatEuro, formatForSap, formatDate, formatDateTime, parseAmount, monthLabel, isoDay, isValidMonth, formatDay, formatJours } from './format.js';
+import { detailsTable } from './import-ui.js';
 
 const tolerance = () => Number(state.data?.config?.toleranceEcart) || 0;
 
@@ -30,8 +31,22 @@ function summary(line) {
     h('dt', { text: 'Fournisseur' }), h('dd', { text: line.fournisseur }),
     h('dt', { text: 'Commande' }), h('dd', {}, copyable(line.commande, { title: 'Copier le n° de commande' })),
     line.poste ? [h('dt', { text: 'Poste' }), h('dd', { text: line.poste })] : null,
-    h('dt', { text: 'Mois' }), h('dd', { text: monthLabel(line.mois) }),
+    line.prestation ? [h('dt', { text: 'Prestation' }), h('dd', { text: line.prestation })] : null,
+    h('dt', { text: 'Période' }), h('dd', { text: periodeLabel(line) }),
+    line.jours !== null ? [h('dt', { text: 'Jours' }), h('dd', { text: formatJours(line.jours) })] : null,
     h('dt', { text: 'Montant attendu' }), h('dd', { text: formatEuro(line.montantAttendu) }));
+}
+
+export function periodeLabel(line) {
+  return line.periode ? `${formatDay(line.periode.debut)} → ${formatDay(line.periode.fin)}` : monthLabel(line.mois);
+}
+
+/** Section « Imputations importées » : détail des lignes additionnées pour le montant attendu. */
+function importDetails(line) {
+  if (!line.details?.length) return null;
+  return h('div', {},
+    h('h3', { text: `Imputations importées (${line.details.length}) — ${periodeLabel(line)}` }),
+    h('div', { class: 'table-wrap' }, detailsTable(line.details, line)));
 }
 
 /** Champ montant avec aperçu de l'écart en direct. */
@@ -334,6 +349,7 @@ export async function lineDetail(lineId) {
       h('div', { class: 'span-2' }, field('Montant du PV (€)', pvAmount.wrap, canEditPV ? '' : 'Modifiable quand la ligne est « PV reçu » ou « Litige ».')),
       field('N° de BR', withCopy(brNum)),
       field('Date du BR', brDate)),
+    importDetails(line),
     h('h3', { text: 'Historique' }),
     history);
 

@@ -2,7 +2,7 @@
 // Module pur : testable sous Node (voir tests/model.test.js).
 
 import { STATUTS, STATUT_LABELS, CYCLE, IMPORT_FIELDS, normalizeLine } from './schema.js';
-import { round2, parseAmount, normalizeKey, safeFilePart } from './format.js';
+import { round2, parseAmount, parseDay, formatDay, normalizeKey, safeFilePart } from './format.js';
 
 const nowIso = () => new Date().toISOString();
 const newId = () => globalThis.crypto.randomUUID();
@@ -159,7 +159,7 @@ export function filterLines(lines, { q = '', fournisseur = '', statut = '' } = {
     if (fournisseur && l.fournisseur !== fournisseur) return false;
     if (statut && l.statut !== statut) return false;
     if (needle) {
-      const hay = normalizeKey([l.collaborateur, l.fournisseur, l.commande, l.poste, l.numeroBR, l.commentaire].join(' '));
+      const hay = normalizeKey([l.collaborateur, l.fournisseur, l.commande, l.poste, l.prestation, l.numeroBR, l.commentaire].join(' '));
       if (!hay.includes(needle)) return false;
     }
     return true;
@@ -173,6 +173,13 @@ export function sortLines(lines) {
     (STATUT_ORDER[a.statut] - STATUT_ORDER[b.statut]) ||
     a.fournisseur.localeCompare(b.fournisseur, 'fr') ||
     a.collaborateur.localeCompare(b.collaborateur, 'fr'));
+}
+
+/** Mois affiché au démarrage : le mois courant s'il a des lignes, sinon le plus récent mois renseigné. */
+export function defaultMonth(lines, current) {
+  if (lines.some((l) => l.mois === current)) return current;
+  const past = monthsInData(lines).filter((m) => m <= current);
+  return past[0] || monthsInData(lines)[0] || current;
 }
 
 export function monthsInData(lines) {
@@ -194,19 +201,29 @@ export function pvPath(line, suffix = '') {
 /* ---------- Import ---------- */
 
 const SYNONYMS = {
-  collaborateur: ['collaborateur', 'ressource', 'nom ressource', 'consultant', 'intervenant', 'prestataire', 'nom', 'agent'],
-  fournisseur: ['fournisseur', 'societe', 'raison sociale', 'prestataire societe', 'vendor', 'supplier', 'titulaire'],
-  commande: ['commande', 'n commande', 'no commande', 'numero commande', 'num commande', 'bon de commande', 'bdc', 'po', 'purchase order', 'ref commande'],
-  poste: ['poste', 'poste commande', 'poste de commande', 'item', 'ligne commande', 'position'],
-  montantAttendu: ['montant', 'montant attendu', 'montant mensuel', 'montant ht', 'montant prevu', 'cout', 'cout mensuel', 'amount', 'total ht'],
+  collaborateur: ['collaborateur', 'ressource', 'nom ressource', 'consultant', 'intervenant', 'nom'],
+  fournisseur: ['fournisseur', 'societe', 'raison sociale', 'vendor', 'supplier', 'titulaire'],
+  commande: ['numeros de commande associes', 'numero de commande associe', 'commande', 'n commande', 'no commande', 'numero commande', 'num commande', 'bon de commande', 'bdc', 'po', 'ref commande'],
+  poste: ['poste', 'poste commande', 'poste de commande', 'ligne commande', 'position'],
+  montantAttendu: ['total ht', 'montant', 'montant attendu', 'montant mensuel', 'montant ht', 'total periode ht', 'cout', 'amount'],
+  debut: ['de', 'debut periode', 'debut', 'date debut', 'du'],
+  fin: ['a', 'fin periode', 'fin', 'date fin', 'au'],
+  quantite: ['quantite', 'jours', 'nb jours', 'nombre de jours', 'qte'],
+  prixUnitaire: ['p u h t', 'pu ht', 'prix unitaire', 'tjm', 'taux journalier'],
+  libelle: ['libelle budget', 'ligne budget', 'ligne budgetaire', 'imputation', 'element de travail'],
 };
 
 const cleanHeader = (h) => normalizeKey(h).replace(/[°º#.:_\-/()]/g, ' ').replace(/\s+/g, ' ').trim();
 
-/** Propose une correspondance champ → en-tête à partir des noms de colonnes. */
-export function guessMapping(headers, saved = {}) {
+/**
+ * Propose une correspondance champ → en-tête à partir des noms de colonnes.
+ * Les colonnes vides dans l'échantillon `rows` sont écartées (ex. « Commande » vide, « Numéros de commande associés » rempli).
+ */
+export function guessMapping(headers, saved = {}, rows = []) {
   const mapping = {};
   const used = new Set();
+  const sample = rows.slice(0, 200);
+  const filled = (h) => !sample.length || sample.some((r) => r[h] !== '' && r[h] !== null && r[h] !== undefined && r[h] !== 0);
   for (const f of IMPORT_FIELDS) {
     if (saved[f.key] && headers.includes(saved[f.key])) {
       mapping[f.key] = saved[f.key];
@@ -215,49 +232,79 @@ export function guessMapping(headers, saved = {}) {
   }
   for (const f of IMPORT_FIELDS) {
     if (mapping[f.key]) continue;
-    const syn = SYNONYMS[f.key];
+    const syn = SYNONYMS[f.key] || [];
     let best = null, bestScore = 0;
     for (const h of headers) {
       if (used.has(h)) continue;
       const c = cleanHeader(h);
       let score = 0;
-      for (const s of syn) {
-        if (c === s) score = Math.max(score, 3);
-        else if (c.startsWith(s + ' ') || c.endsWith(' ' + s)) score = Math.max(score, 2);
-        else if (c.includes(s) && s.length > 3) score = Math.max(score, 1);
-      }
+      syn.forEach((s, i) => {
+        const rank = (syn.length - i) / syn.length; // les premiers synonymes sont préférés
+        if (c === s) score = Math.max(score, 10 + rank);
+        else if (s.length > 2 && (c.startsWith(s + ' ') || c.endsWith(' ' + s))) score = Math.max(score, 5 + rank);
+        else if (s.length > 3 && c.includes(s)) score = Math.max(score, 2 + rank);
+      });
+      if (score && !filled(h)) score -= 9; // colonne vide : seulement en dernier recours
       if (score > bestScore) { best = h; bestScore = score; }
     }
-    if (best) { mapping[f.key] = best; used.add(best); }
+    if (best && bestScore > 0) { mapping[f.key] = best; used.add(best); }
   }
   return mapping;
 }
 
 /**
- * Applique la correspondance aux lignes brutes (objets { en-tête: valeur }).
- * @returns {{ valid: Array<{fields, source, rowNumber}>, invalid: Array<{rowNumber, errors}> }}
+ * Découpe une référence de commande : « 3000000101-10-Prestation de … » → commande, poste, libellé.
+ * Une valeur sans ce format est renvoyée telle quelle comme n° de commande.
+ */
+export function parseCommande(value) {
+  const s = String(value ?? '').trim();
+  const m = s.match(/^(\d{5,})\s*[-/ ]\s*(\d{1,5})(?:\s*[-/]\s*(.*))?$/);
+  if (m) return { commande: m[1], poste: m[2], prestation: (m[3] || '').trim() };
+  return { commande: s, poste: '', prestation: '' };
+}
+
+const num = (v) => {
+  const n = parseAmount(v);
+  return n === null || Number.isNaN(n) ? null : n;
+};
+
+/**
+ * Lit les lignes brutes (objets { en-tête: valeur }) selon la correspondance.
+ * @returns {{ valid: Array<{fields, source, rowNumber}>, invalid: Array<{rowNumber, errors, fields}> }}
+ *   fields : collaborateur, fournisseur, commande, poste, prestation, montant, quantite, prixUnitaire, libelle, debut, fin
  */
 export function mapRows(rows, mapping, { firstRowNumber = 2 } = {}) {
   const valid = [], invalid = [];
   const mappedHeaders = new Set(Object.values(mapping).filter(Boolean));
+  const get = (row, key) => (mapping[key] ? row[mapping[key]] : '');
   rows.forEach((row, i) => {
     const rowNumber = firstRowNumber + i;
-    const values = Object.values(row).map((v) => String(v ?? '').trim());
-    if (values.every((v) => v === '')) return; // ligne vide : ignorée silencieusement
-    const fields = {}, errors = [];
-    for (const f of IMPORT_FIELDS) {
-      const h = mapping[f.key];
-      const raw = h ? row[h] : '';
-      if (f.key === 'montantAttendu') {
-        const m = parseAmount(raw);
-        if (m === null) errors.push('montant attendu vide');
-        else if (Number.isNaN(m)) errors.push(`montant illisible « ${raw} »`);
-        fields[f.key] = Number.isNaN(m) ? null : m;
-      } else {
-        fields[f.key] = String(raw ?? '').trim();
-        if (f.required && !fields[f.key]) errors.push(`${f.label.toLowerCase()} vide`);
-      }
-    }
+    if (Object.values(row).every((v) => String(v ?? '').trim() === '')) return; // ligne vide
+    const errors = [];
+    const cmd = parseCommande(get(row, 'commande'));
+    const posteCol = String(get(row, 'poste') ?? '').trim();
+    const fields = {
+      collaborateur: String(get(row, 'collaborateur') ?? '').trim(),
+      fournisseur: String(get(row, 'fournisseur') ?? '').trim(),
+      commande: cmd.commande,
+      poste: posteCol || cmd.poste,
+      prestation: cmd.prestation,
+      montant: null,
+      quantite: num(get(row, 'quantite')),
+      prixUnitaire: num(get(row, 'prixUnitaire')),
+      libelle: String(get(row, 'libelle') ?? '').trim(),
+      debut: parseDay(get(row, 'debut')),
+      fin: parseDay(get(row, 'fin')),
+    };
+    const m = parseAmount(get(row, 'montantAttendu'));
+    if (m === null) errors.push('montant vide');
+    else if (Number.isNaN(m)) errors.push(`montant illisible « ${get(row, 'montantAttendu')} »`);
+    else fields.montant = m;
+    if (!fields.collaborateur) errors.push('sans collaborateur');
+    if (!fields.commande) errors.push('sans n° de commande');
+    if (!fields.fournisseur) errors.push('sans fournisseur');
+    if (fields.debut === null) errors.push(`date de début illisible « ${get(row, 'debut')} »`);
+    if (fields.fin === null) errors.push(`date de fin illisible « ${get(row, 'fin')} »`);
     const source = {};
     for (const [k, v] of Object.entries(row)) if (!mappedHeaders.has(k) && v !== '' && v !== null) source[k] = v;
     if (errors.length) invalid.push({ rowNumber, errors, fields });
@@ -266,27 +313,90 @@ export function mapRows(rows, mapping, { firstRowNumber = 2 } = {}) {
   return { valid, invalid };
 }
 
-/** Clé de doublon : collaborateur + commande + mois. */
-export function duplicateKey({ collaborateur, commande }, mois) {
-  return `${mois}|${normalizeKey(collaborateur)}|${normalizeKey(commande)}`;
+/** Résume les motifs de rejet : [{ motif, count }] (ex. « sans n° de commande » × 164). */
+export function summarizeInvalid(invalid) {
+  const m = new Map();
+  for (const r of invalid) {
+    const k = r.errors.join(', ');
+    m.set(k, (m.get(k) || 0) + 1);
+  }
+  return [...m.entries()].map(([motif, count]) => ({ motif, count })).sort((a, b) => b.count - a.count);
+}
+
+/** Périodes (De → A) présentes dans les lignes valides, de la plus récente à la plus ancienne. */
+export function listPeriods(validRows) {
+  const m = new Map();
+  for (const r of validRows) {
+    const { debut, fin } = r.fields;
+    if (!debut) continue;
+    const key = `${debut}|${fin}`;
+    const e = m.get(key) || { debut, fin, mois: debut.slice(0, 7), lignes: 0, montant: 0 };
+    e.lignes++;
+    e.montant = round2(e.montant + r.fields.montant);
+    m.set(key, e);
+  }
+  return [...m.values()].sort((a, b) => b.debut.localeCompare(a.debut) || b.fin.localeCompare(a.fin));
+}
+
+/** Clé de regroupement / doublon : collaborateur + commande + poste (+ mois). */
+const groupKey = (f) => `${normalizeKey(f.collaborateur)}|${normalizeKey(f.commande)}|${normalizeKey(f.poste)}`;
+
+/**
+ * Additionne les imputations d'une période par collaborateur × commande × poste.
+ * @param period { debut, fin } ou null (toutes les lignes, fichier sans dates)
+ * @returns Array<{ fields: { collaborateur, fournisseur, commande, poste, prestation, montantAttendu, jours, periode }, details, source, rowNumbers }>
+ */
+export function aggregate(validRows, period = null) {
+  const groups = new Map();
+  for (const r of validRows) {
+    const f = r.fields;
+    if (period && (f.debut !== period.debut || f.fin !== period.fin)) continue;
+    const key = groupKey(f);
+    let g = groups.get(key);
+    if (!g) {
+      g = {
+        fields: {
+          collaborateur: f.collaborateur, fournisseur: f.fournisseur, commande: f.commande, poste: f.poste,
+          prestation: f.prestation, montantAttendu: 0, jours: null,
+          periode: period ? { debut: period.debut, fin: period.fin } : (f.debut ? { debut: f.debut, fin: f.fin } : null),
+        },
+        details: [], source: r.source, rowNumbers: [], fournisseurs: new Set(),
+      };
+      groups.set(key, g);
+    }
+    g.fournisseurs.add(f.fournisseur);
+    g.fields.montantAttendu = round2(g.fields.montantAttendu + f.montant);
+    if (f.quantite !== null) g.fields.jours = round2((g.fields.jours || 0) + f.quantite);
+    if (!g.fields.prestation && f.prestation) g.fields.prestation = f.prestation;
+    g.details.push({ libelle: f.libelle, quantite: f.quantite, prixUnitaire: f.prixUnitaire, montant: f.montant, ligne: r.rowNumber });
+    g.rowNumbers.push(r.rowNumber);
+  }
+  return [...groups.values()].map(({ fournisseurs, ...g }) => {
+    g.fields.fournisseur = [...fournisseurs].join(' / ');
+    return g;
+  }).sort((a, b) => a.fields.fournisseur.localeCompare(b.fields.fournisseur, 'fr') || a.fields.collaborateur.localeCompare(b.fields.collaborateur, 'fr'));
+}
+
+/** Clé de doublon : collaborateur + commande + poste + mois. */
+export function duplicateKey(f, mois) {
+  return `${mois}|${groupKey(f)}`;
 }
 
 /**
- * Compare les lignes importées aux lignes existantes du mois.
+ * Compare les lignes à importer (agrégées) aux lignes existantes du mois.
  * @returns {{ nouvelles, doublons: Array<{incoming, existing, changes}> }}
  */
-export function planImport(existingLines, validRows, mois) {
+export function planImport(existingLines, items, mois) {
   const index = new Map();
   for (const l of existingLines) if (l.mois === mois) index.set(duplicateKey(l, mois), l);
   const seen = new Set();
   const nouvelles = [], doublons = [];
-  for (const r of validRows) {
+  for (const r of items) {
     const key = duplicateKey(r.fields, mois);
     const existing = index.get(key);
     if (existing) {
       doublons.push({ incoming: r, existing, changes: diffImportFields(existing, r.fields) });
     } else if (seen.has(key)) {
-      // Doublon à l'intérieur du fichier importé : on garde la première occurrence.
       doublons.push({ incoming: r, existing: null, changes: [], inFile: true });
     } else {
       seen.add(key);
@@ -298,20 +408,35 @@ export function planImport(existingLines, validRows, mois) {
 
 function diffImportFields(existing, fields) {
   const changes = [];
-  for (const k of ['fournisseur', 'poste', 'montantAttendu']) {
+  for (const k of ['fournisseur', 'montantAttendu', 'jours']) {
     const a = existing[k] ?? '', b = fields[k] ?? '';
-    if (k === 'montantAttendu' ? round2(a || 0) !== round2(b || 0) : String(a) !== String(b)) {
-      changes.push({ champ: k, avant: existing[k], apres: fields[k] });
-    }
+    const differs = k === 'fournisseur' ? String(a) !== String(b) : round2(a || 0) !== round2(b || 0);
+    if (differs) changes.push({ champ: k, avant: existing[k], apres: fields[k] });
   }
   return changes;
 }
 
+/** Crée une ligne « Attendu » à partir d'un élément agrégé. */
+export function lineFromImport(item, mois, importId) {
+  const l = createLine(item.fields, { mois, importId, source: item.source });
+  Object.assign(l, {
+    prestation: item.fields.prestation || '',
+    jours: item.fields.jours ?? null,
+    periode: item.fields.periode ?? null,
+    details: item.details || [],
+  });
+  return l;
+}
+
 /** Met à jour une ligne existante depuis l'import (sans toucher au statut, au PV ni au BR). */
-export function updateFromImport(line, fields, importId) {
+export function updateFromImport(line, fields, importId, details = null) {
   line.fournisseur = fields.fournisseur || line.fournisseur;
-  line.poste = fields.poste ?? line.poste;
+  if (fields.poste !== undefined) line.poste = fields.poste || line.poste;
   line.montantAttendu = fields.montantAttendu;
+  if (fields.jours !== undefined) line.jours = fields.jours;
+  if (fields.periode) line.periode = fields.periode;
+  if (fields.prestation) line.prestation = fields.prestation;
+  if (details) line.details = details;
   line.importId = importId;
   line.historique.push({ date: nowIso(), statut: line.statut, detail: 'Mise à jour par import' });
   touch(line);
@@ -325,6 +450,9 @@ export const EXPORT_COLUMNS = Object.freeze([
   { key: 'fournisseur', label: 'Fournisseur' },
   { key: 'commande', label: 'N° commande' },
   { key: 'poste', label: 'Poste' },
+  { key: 'prestation', label: 'Prestation' },
+  { key: 'periode', label: 'Période' },
+  { key: 'jours', label: 'Jours', type: 'number' },
   { key: 'montantAttendu', label: 'Montant attendu', type: 'euro' },
   { key: 'montantPV', label: 'Montant PV', type: 'euro' },
   { key: 'ecart', label: 'Écart', type: 'euro' },
@@ -352,6 +480,9 @@ export function exportRows(lines) {
     fournisseur: l.fournisseur,
     commande: l.commande,
     poste: l.poste,
+    prestation: l.prestation,
+    periode: l.periode ? `${formatDay(l.periode.debut)} → ${formatDay(l.periode.fin)}` : '',
+    jours: l.jours,
     montantAttendu: l.montantAttendu,
     montantPV: l.montantPV,
     ecart: computeEcart(l),

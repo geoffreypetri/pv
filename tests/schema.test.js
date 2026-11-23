@@ -14,6 +14,7 @@ test('schéma 0 (sans schemaVersion) → 1 : champs complétés, données conser
   const v0 = { lignes: [{ id: 'a', mois: '2026-10', collaborateur: 'Alice Test', montantAttendu: 1000 }] };
   const r = migrate(v0, { target: 1 });
   assert.equal(r.fromVersion, 0);
+  assert.ok(r.data.lignes[0].id);
   assert.equal(r.migrated, true);
   assert.equal(r.data.schemaVersion, 1);
   const l = r.data.lignes[0];
@@ -25,6 +26,25 @@ test('schéma 0 (sans schemaVersion) → 1 : champs complétés, données conser
   assert.deepEqual(r.data.config.importMapping, {});
   assert.deepEqual(r.data.commandes, {});
   assert.ok(Array.isArray(r.data.imports));
+});
+
+test('schéma 1 → 2 : détail d\'import ajouté, lignes existantes conservées', () => {
+  const v1 = { schemaVersion: 1, app: {}, config: { importMapping: { collaborateur: 'Nom' }, toleranceEcart: 5 }, imports: [], commandes: {},
+    lignes: [{ id: 'a', mois: '2026-10', collaborateur: 'Alice Test', statut: 'br_cree', numeroBR: '42', historique: [{ date: 'x', statut: 'br_cree' }] }] };
+  const r = migrate(v1, { target: 2 });
+  assert.equal(r.migrated, true);
+  assert.equal(r.fromVersion, 1);
+  assert.equal(r.data.schemaVersion, 2);
+  const l = r.data.lignes[0];
+  assert.equal(l.statut, 'br_cree');
+  assert.equal(l.numeroBR, '42');
+  assert.deepEqual(l.details, []);
+  assert.equal(l.jours, null);
+  assert.equal(l.periode, null);
+  assert.equal(l.prestation, '');
+  assert.equal(r.data.config.importSheet, '');
+  assert.equal(r.data.config.toleranceEcart, 5);
+  assert.equal(r.data.config.importMapping.collaborateur, 'Nom');
 });
 
 test('la migration ne modifie pas l\'objet d\'origine', () => {
@@ -55,7 +75,7 @@ test('les migrations successives s\'enchaînent dans l\'ordre', () => {
 });
 
 test('une migration manquante lève une erreur explicite', () => {
-  assert.throws(() => migrate({ schemaVersion: 1 }, { target: 2 }), /Migration manquante vers le schéma 2/);
+  assert.throws(() => migrate({ schemaVersion: SCHEMA_VERSION }, { target: SCHEMA_VERSION + 1 }), /Migration manquante vers le schéma/);
 });
 
 test('données écrites par une version plus récente → lecture seule, données intactes', () => {

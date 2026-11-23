@@ -269,6 +269,7 @@ td.actions { white-space: nowrap; text-align: right; }
 dialog.modal { border: 1px solid var(--border); border-radius: 14px; padding: 0; width: min(540px, calc(100vw - 32px)); max-height: calc(100vh - 48px); box-shadow: 0 24px 48px -12px rgb(0 0 0 / 25%); background: var(--surface); color: var(--text); display: flex; flex-direction: column; }
 dialog.modal:not([open]) { display: none; }
 dialog.modal-wide { width: min(900px, calc(100vw - 32px)); }
+dialog.modal-xwide { width: min(1180px, calc(100vw - 32px)); }
 dialog::backdrop { background: var(--overlay); backdrop-filter: blur(2px); }
 .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 18px 24px 8px; gap: 12px; }
 .modal-header h2 { font-size: 17px; }
@@ -308,7 +309,15 @@ dialog::backdrop { background: var(--overlay); backdrop-filter: blur(2px); }
 .history li { padding: 4px 0 4px 14px; }
 .history time { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
 
-.import-summary { padding-left: 20px; line-height: 1.9; }
+.import-summary { padding-left: 20px; line-height: 1.9; margin-top: 4px; }
+.review { max-height: 52vh; }
+.review tr.row-toggle { cursor: pointer; }
+.review tr.row-toggle:hover { background: var(--hover); }
+.review tr.detail-row > td { background: var(--surface-2); padding: 8px 12px 12px 32px; }
+.grid tfoot td { font-weight: 600; border-top: 1px solid var(--border-strong); border-bottom: 0; position: sticky; bottom: 0; background: var(--surface); }
+.grid.details { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); }
+.grid.details tfoot td { position: static; }
+select.select-small { height: 28px; font-size: 12px; padding: 0 6px; }
 .preview { max-height: 220px; }
 details summary { cursor: pointer; color: var(--muted); }
 

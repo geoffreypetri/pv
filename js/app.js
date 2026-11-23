@@ -5,7 +5,7 @@ import { state, subscribe, notify, openWorkdir, setReadOnly, APP_VERSION } from 
 import * as S from './storage.js';
 import * as M from './model.js';
 import { STATUTS, STATUT_LABELS, CYCLE } from './schema.js';
-import { formatEuro, monthLabel, addMonths, currentMonth, formatDate } from './format.js';
+import { formatEuro, monthLabel, addMonths, currentMonth, formatDate, formatJours } from './format.js';
 import { buildExport } from './excel.js';
 import { startImport } from './import-ui.js';
 import { depositPV, openPV, validateLine, sapSheet, lineDetail, addLine, statusBadge, ecartView } from './line-ui.js';
@@ -54,6 +54,7 @@ function acquireInstanceLock() {
 async function open(dir) {
   try {
     const r = await openWorkdir(dir);
+    state.mois = M.defaultMonth(state.data.lignes, currentMonth());
     if (r.created) toast(`Dossier initialisé : ${dir.name}/data.json créé.`, 'success');
     if (r.backup) toast(`Données mises à jour vers le nouveau format. Ancien fichier sauvegardé : ${r.backup}`, 'info', 8000);
     showDashboard();
@@ -280,7 +281,8 @@ function lineRow(l) {
   h('td', {}, h('div', { class: 'cell-main', text: l.collaborateur }), l.commentaire ? h('div', { class: 'cell-sub', text: l.commentaire }) : null),
   h('td', { text: l.fournisseur }),
   h('td', {}, h('div', {}, copyable(l.commande, { title: 'Copier le n° de commande' })), l.poste ? h('div', { class: 'cell-sub', text: l.poste }) : null),
-  h('td', { class: 'num', text: formatEuro(l.montantAttendu) }),
+  h('td', { class: 'num' }, h('div', { text: formatEuro(l.montantAttendu) }),
+    l.jours !== null ? h('div', { class: 'cell-sub', title: l.details?.length ? `Somme de ${l.details.length} imputation(s)` : '', text: `${formatJours(l.jours)}${l.details?.length > 1 ? ` · ${l.details.length} lignes` : ''}` }) : null),
   h('td', { class: 'num' }, l.montantPV === null ? h('span', { class: 'muted', text: '—' }) : formatEuro(l.montantPV)),
   h('td', { class: 'num' }, ecartView(l)),
   h('td', {}, statusBadge(l.statut)),
