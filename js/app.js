@@ -8,7 +8,7 @@ import { STATUTS, STATUT_LABELS, CYCLE } from './schema.js';
 import { formatEuro, monthLabel, currentMonth, formatJours } from './format.js';
 import { buildExport } from './excel.js';
 import { startImport } from './import-ui.js';
-import { depositPV, openPV, validateLine, sapSheet, lineDetail, addLine, statusBadge, ecartView, alerteText } from './line-ui.js';
+import { depositPV, depositFiles, openPV, validateLine, sapSheet, lineDetail, addLine, statusBadge, ecartView, alerteText } from './line-ui.js';
 import { openSettings } from './settings-ui.js';
 import { initServiceWorker } from './update.js';
 
@@ -126,6 +126,7 @@ function bindToolbar() {
   for (const b of document.querySelectorAll('[data-icon]')) b.prepend(icon(b.dataset.icon));
   $('btnImport').addEventListener('click', () => startImport());
   $('btnAddLine').addEventListener('click', () => addLine());
+  $('btnDeposit').addEventListener('click', () => depositFiles());
   $('btnExport').addEventListener('click', exportView);
   $('btnSettings').addEventListener('click', () => openSettings({ onChangeFolder: async () => {
     document.querySelector('dialog[open] .modal-header .btn')?.click();
@@ -152,7 +153,7 @@ function render() {
   renderFooter();
   renderReadOnly();
   if (!state.data || $('dashboard').hidden) return;
-  for (const id of ['btnImport', 'btnAddLine']) $(id).disabled = state.readOnly;
+  for (const id of ['btnImport', 'btnAddLine', 'btnDeposit']) $(id).disabled = state.readOnly;
   renderView();
 }
 
@@ -407,16 +408,32 @@ function alerteIcon(l) {
   return h('span', { class: 'alerte', title: alerteText(l) }, icon('alert', { size: 14 }));
 }
 
-/** Empêche le navigateur d'ouvrir un fichier lâché à côté d'une ligne. */
+/**
+ * Glisser-déposer n'importe où dans la fenêtre :
+ *  - PDF → rattachés automatiquement à leur ligne (n° de commande + mois lus dans le nom) ;
+ *  - Excel / CSV → import Abraxio.
+ * Un dépôt directement sur une ligne du tableau reste possible (géré par la ligne).
+ */
 function preventFileDropOutsideRows() {
-  document.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) e.preventDefault(); });
+  const hint = $('dropHint');
+  hint.append(icon('upload'), h('span', { text: 'Déposez vos PV (PDF) : chacun sera rattaché à sa ligne via le n° de commande et le mois de son nom. Un export Abraxio (Excel) sera importé.' }));
+  let depth = 0;
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes('Files');
+  const setDragging = (v) => document.body.classList.toggle('dragging-files', v && !!state.data && !state.readOnly);
+  document.addEventListener('dragenter', (e) => { if (hasFiles(e)) { depth++; setDragging(true); } });
+  document.addEventListener('dragleave', (e) => { if (hasFiles(e) && --depth <= 0) { depth = 0; setDragging(false); } });
+  document.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  // Phase de capture : réinitialisé même quand une ligne du tableau reçoit le fichier.
+  document.addEventListener('drop', () => { depth = 0; setDragging(false); }, true);
   document.addEventListener('drop', (e) => {
     if (!e.dataTransfer.files.length) return;
     e.preventDefault();
     if (!state.data) return;
-    const f = e.dataTransfer.files[0];
-    if (/\.(xlsx|xls|xlsm|csv)$/i.test(f.name)) startImport(f);
-    else toast('Déposez le PDF directement sur la ligne du collaborateur concerné.', 'warn');
+    if (document.querySelector('dialog[open]')) return toast('Terminez d\'abord la saisie en cours.', 'warn');
+    const files = [...e.dataTransfer.files];
+    const excel = files.find((f) => /\.(xlsx|xls|xlsm|csv)$/i.test(f.name));
+    if (excel) return startImport(excel);
+    depositFiles(files);
   });
 }
 

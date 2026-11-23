@@ -22,6 +22,7 @@
     <div class="brand"><img src="icons/icon.svg" alt="" width="24" height="24"><span>Suivi PV</span></div>
     <div id="toolbar" class="toolbar" hidden>
       <button id="btnImport" type="button" class="btn btn-primary" data-icon="upload">Importer Abraxio</button>
+      <button id="btnDeposit" type="button" class="btn" data-icon="file">Déposer des PV</button>
       <button id="btnExport" type="button" class="btn" data-icon="download">Exporter</button>
       <button id="btnAddLine" type="button" class="btn" data-icon="plus">Nouvelle ligne</button>
       <button id="btnSettings" type="button" class="btn btn-ghost" data-icon="settings">Paramètres</button>
@@ -56,9 +57,11 @@
           <tbody id="linesBody"></tbody>
         </table>
       </div>
-      <p class="hint"><span id="resultCount"></span> Glissez-déposez le PDF d'un PV sur la ligne du collaborateur.</p>
+      <p class="hint"><span id="resultCount"></span> Glissez-déposez vos PV (PDF) n'importe où dans la fenêtre : ils sont rattachés à leur ligne grâce au n° de commande et au mois (AAAA-MM) de leur nom.</p>
     </section>
   </main>
+
+  <div class="drop-hint" id="dropHint" aria-hidden="true"></div>
 
   <footer class="footer">
     <span>Suivi PV <span id="appVersion"></span></span>

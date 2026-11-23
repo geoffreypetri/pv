@@ -204,9 +204,47 @@ export function yearsInData(lines) {
 
 /* ---------- PV : nom de fichier ---------- */
 
-/** « AAAA-MM_Fournisseur_Collaborateur.pdf » (caractères sûrs). */
+/** « <n° de commande>_<fournisseur>_AAAA-MM.pdf » (caractères sûrs). */
 export function pvFileName(line, suffix = '') {
-  return `${line.mois}_${safeFilePart(line.fournisseur)}_${safeFilePart(line.collaborateur)}${suffix}.pdf`;
+  return `${safeFilePart(line.commande, 30)}_${safeFilePart(line.fournisseur)}_${line.mois}${suffix}.pdf`;
+}
+
+/**
+ * Lit le n° de commande et le mois dans le nom d'un fichier PV.
+ * Ex. « 3000000101_ACME_2026-10.pdf », « PV 3000000101 octobre 2026.pdf » (mois en lettres), « 3000000101-202610.pdf ».
+ * @returns {{ commande: string, mois: string }} (chaînes vides si non trouvés)
+ */
+export function parsePvFileName(name) {
+  const base = String(name ?? '').replace(/\.[^.]+$/, '');
+  // Mois : AAAA-MM / AAAA_MM / AAAAMM, MM-AAAA, ou nom de mois en lettres suivi de l'année.
+  let mois = '', rest = base;
+  const tries = [
+    [/(?:^|\D)(20\d{2})[-_. ]?(0[1-9]|1[0-2])(?!\d)/, (m) => `${m[1]}-${m[2]}`],
+    [/(?:^|\D)(0[1-9]|1[0-2])[-_. ](20\d{2})(?!\d)/, (m) => `${m[2]}-${m[1]}`],
+  ];
+  for (const [re, fmt] of tries) {
+    const m = rest.match(re);
+    if (m) { mois = fmt(m); rest = rest.replace(m[0].replace(/^\D/, ''), ' '); break; }
+  }
+  if (!mois) {
+    const noms = ['janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin', 'juillet', 'aout', 'septembre', 'octobre', 'novembre', 'decembre'];
+    const m = normalizeKey(rest).match(new RegExp(`(${noms.join('|')})\\s*[-_. ]?\\s*(20\\d{2})`));
+    if (m) mois = `${m[2]}-${String(noms.indexOf(m[1]) + 1).padStart(2, '0')}`;
+  }
+  // N° de commande : la plus longue suite d'au moins 6 chiffres restante.
+  const nums = (rest.match(/\d{6,}/g) || []).sort((a, b) => b.length - a.length);
+  return { commande: nums[0] || '', mois };
+}
+
+/**
+ * Lignes correspondant à un PV (n° de commande + mois).
+ * @returns {{ exactes: line[], memeCommande: line[], memeMois: line[] }}
+ */
+export function matchPv(lines, { commande, mois }) {
+  const exactes = commande && mois ? lines.filter((l) => l.commande === commande && l.mois === mois) : [];
+  const memeCommande = commande ? lines.filter((l) => l.commande === commande && l.mois !== mois) : [];
+  const memeMois = mois ? lines.filter((l) => l.mois === mois && l.commande !== commande) : [];
+  return { exactes, memeCommande, memeMois };
 }
 
 /** Chemin relatif au dossier de travail. */

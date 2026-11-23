@@ -6,6 +6,13 @@ Notez les changements à venir sous `## [Non publié]` : `node scripts/release.m
 
 ## [Non publié]
 
+## [0.5.0] - 2026-11-23
+- Curseur de la souris toujours visible au survol des champs de saisie
+- PV rangés sous le nom « <n° de commande>_<fournisseur>_AAAA-MM.pdf »
+- Dépôt des PV n'importe où dans la fenêtre (un ou plusieurs fichiers) ou par le bouton « Déposer des PV » : rattachement automatique par le n° de commande et le mois lus dans le nom du fichier
+- Alerte si aucune ligne ne correspond, avec choix manuel de la ligne (même commande ou même mois en tête)
+- Avertissement si le nom du fichier indique une autre commande ou un autre mois que la ligne choisie
+
 ## [0.4.1] - 2026-11-23
 - Poste : tout le texte qui suit le n° de commande (ex. « 10-Prestation de … »), y compris pour les lignes déjà importées
 - Tableau groupé par mois (en-têtes repliables avec nombre de lignes, total et BR créés) à la place de la colonne Mois

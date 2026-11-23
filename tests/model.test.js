@@ -35,8 +35,6 @@ test('nom de fichier PV sûr', () => {
   assert.equal(safeFilePart('Société Fictive & Cie'), 'Societe-Fictive-Cie');
   assert.equal(safeFilePart('  ../../etc  '), 'etc');
   assert.equal(safeFilePart(''), 'inconnu');
-  assert.equal(M.pvFileName(mk()), '2026-11_Societe-Fictive-Cie_Alice-Martin.pdf');
-  assert.equal(M.pvPath(mk(), '_2'), 'PV/2026-11/2026-11_Societe-Fictive-Cie_Alice-Martin_2.pdf');
 });
 
 test('cycle complet : Attendu → PV reçu → Validé → BR créé, avec historique', () => {
@@ -356,4 +354,30 @@ test('vue à plat : filtres année, mois, fournisseurs, statuts, alertes et tri 
   assert.equal(names(M.sortLines(lines, { key: 'montantAttendu', dir: 'desc' })), 'Bruno,Chloé,Alice');
   assert.equal(names(M.sortLines(lines, { key: 'collaborateur' })), 'Alice,Bruno,Chloé');
   assert.deepEqual(M.yearsInData(lines), ['2026', '2025']);
+});
+
+test('nom de fichier PV : « <commande>_<fournisseur>_AAAA-MM.pdf »', () => {
+  const l = mk({ commande: '3000000101', fournisseur: 'Société Fictive & Cie' });
+  assert.equal(M.pvFileName(l), '3000000101_Societe-Fictive-Cie_2026-11.pdf');
+  assert.equal(M.pvPath(l, '_2'), 'PV/2026-11/3000000101_Societe-Fictive-Cie_2026-11_2.pdf');
+});
+
+test('lecture du n° de commande et du mois dans le nom d\'un PV', () => {
+  const p = (n) => { const r = M.parsePvFileName(n); return `${r.commande}|${r.mois}`; };
+  assert.equal(p('3000000101_PRESTATAIRE-ALPHA_2026-10.pdf'), '3000000101|2026-10');
+  assert.equal(p('PV 3000000101 octobre 2026.pdf'), '3000000101|2026-10');
+  assert.equal(p('PV_Août-2026_3000000101.PDF'), '3000000101|2026-08');
+  assert.equal(p('3000000101-202610.pdf'), '3000000101|2026-10');
+  assert.equal(p('PV 10-2026 cde 3000000101.pdf'), '3000000101|2026-10');
+  assert.equal(p('scan0001.pdf'), '|');
+  assert.equal(p('3000000101.pdf'), '3000000101|');
+});
+
+test('rapprochement PV ↔ lignes par commande et mois', () => {
+  const a = { ...mk({ commande: '3000000101' }), mois: '2026-10' };
+  const b = { ...mk({ commande: '3000000101' }), mois: '2026-09' };
+  const c = { ...mk({ commande: '3000000102' }), mois: '2026-10' };
+  const r = M.matchPv([a, b, c], { commande: '3000000101', mois: '2026-10' });
+  assert.deepEqual([r.exactes, r.memeCommande, r.memeMois], [[a], [b], [c]]);
+  assert.equal(M.matchPv([a, b, c], { commande: '', mois: '' }).exactes.length, 0);
 });

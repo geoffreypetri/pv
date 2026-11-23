@@ -294,10 +294,10 @@ export function multiSelect({ label, allLabel = 'Tous', options = [], values = [
 }
 
 /** Ouvre le sélecteur de fichiers et résout avec le fichier choisi (ou null). */
-export function pickFile(accept) {
+export function pickFile(accept, { multiple = false } = {}) {
   return new Promise((resolve) => {
-    const input = h('input', { type: 'file', accept, hidden: true });
-    input.addEventListener('change', () => { resolve(input.files[0] || null); input.remove(); });
+    const input = h('input', { type: 'file', accept, hidden: true, multiple });
+    input.addEventListener('change', () => { resolve(multiple ? [...input.files] : input.files[0] || null); input.remove(); });
     input.addEventListener('cancel', () => { resolve(null); input.remove(); });
     document.body.append(input);
     input.click();

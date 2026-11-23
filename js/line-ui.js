@@ -99,7 +99,15 @@ async function freePvPath(line) {
   throw new Error('Impossible de trouver un nom de fichier libre.');
 }
 
-export async function depositPV(lineId, file) {
+/** Statuts sur lesquels on peut déposer (ou remplacer) un PV. */
+const DEPOSABLE = [STATUTS.ATTENDU, STATUTS.PV_RECU, STATUTS.LITIGE];
+
+/**
+ * Dépôt d'un PV sur une ligne.
+ * @param context { auto?: boolean } : ligne trouvée automatiquement à partir du nom du fichier.
+ * @returns true si le PV a été enregistré, false/undefined sinon.
+ */
+export async function depositPV(lineId, file, context = {}) {
   try { assertWritable(); } catch (e) { return toast(e.message, 'error'); }
   const line = findLine(lineId);
   if (!line) return;
@@ -108,17 +116,26 @@ export async function depositPV(lineId, file) {
     if (!file) return;
   }
   if (!isPdf(file)) return toast('Seuls les fichiers PDF sont acceptés.', 'error');
-  if (![STATUTS.ATTENDU, STATUTS.PV_RECU, STATUTS.LITIGE].includes(line.statut)) {
+  if (!DEPOSABLE.includes(line.statut)) {
     return toast(`Cette ligne est au statut « ${STATUT_LABELS[line.statut]} ». Revenez à l'étape précédente (fiche de la ligne) pour remplacer le PV.`, 'error', 7000);
   }
+  // Le nom du fichier indique-t-il une autre commande ou un autre mois que la ligne ?
+  const lu = M.parsePvFileName(file.name);
+  const ecarts = [];
+  if (lu.commande && lu.commande !== line.commande) ecarts.push(`la commande ${lu.commande}`);
+  if (lu.mois && lu.mois !== line.mois) ecarts.push(monthLabel(lu.mois));
   const target = await freePvPath(line);
   const amount = amountInput(line, line.montantPV);
   const comment = h('textarea', { rows: 2, value: line.commentaire, placeholder: 'Facultatif' });
   const ok = await modal({
     title: 'Dépôt du PV',
     body: h('div', {},
+      context.auto ? h('div', { class: 'callout callout-ok' }, icon('check'),
+        h('span', {}, 'Ligne trouvée à partir du nom du fichier : commande ', h('strong', { text: line.commande }), `, ${monthLabel(line.mois)}.`)) : null,
+      ecarts.length ? h('div', { class: 'callout callout-warn' }, icon('alert'),
+        h('span', { text: `Attention : le nom du fichier indique ${ecarts.join(' et ')}, différent de cette ligne.` })) : null,
       summary(line),
-      h('p', { class: 'file-target' }, h('strong', { text: file.name }), ' sera copié sous ', h('code', { text: target })),
+      h('p', { class: 'file-target' }, h('strong', { text: file.name }), ' sera rangé sous ', h('code', { text: target })),
       line.fichierPV ? h('p', { class: 'warning', text: `Un PV est déjà enregistré (${line.fichierPV}) : il sera remplacé.` }) : null,
       field('Montant du PV (€)', amount.wrap),
       field('Commentaire', comment)),
@@ -137,6 +154,84 @@ export async function depositPV(lineId, file) {
     if (M.hasEcart(line, tolerance())) toast(`PV enregistré — écart de ${formatEuro(M.computeEcart(line))} à vérifier.`, 'warn', 6000);
     else toast('PV enregistré, montant conforme.', 'success');
   }
+  return ok;
+}
+
+/* ---------- Dépôt de PV sans cibler la ligne : rapprochement par le nom du fichier ---------- */
+
+const lineLabel = (l) => `${monthLabel(l.mois)} — ${l.commande} — ${l.collaborateur} (${l.fournisseur}) — ${STATUT_LABELS[l.statut]}`;
+
+/**
+ * Dépose un ou plusieurs PDF : chaque fichier est rattaché à sa ligne grâce au n° de commande
+ * et au mois lus dans son nom. Sans correspondance, une alerte propose de choisir la ligne.
+ */
+export async function depositFiles(files) {
+  try { assertWritable(); } catch (e) { return toast(e.message, 'error'); }
+  if (!files) {
+    files = await pickFile('application/pdf,.pdf', { multiple: true });
+    if (!files?.length) return;
+  }
+  const pdfs = [...files].filter(isPdf);
+  if (pdfs.length < files.length) toast(`${files.length - pdfs.length} fichier(s) ignoré(s) : seuls les PDF sont acceptés.`, 'warn');
+  let done = 0;
+  for (const [i, file] of pdfs.entries()) {
+    const progress = pdfs.length > 1 ? ` (${i + 1}/${pdfs.length})` : '';
+    const lu = M.parsePvFileName(file.name);
+    const match = M.matchPv(state.data.lignes, lu);
+    let line = null, auto = false;
+    if (match.exactes.length === 1) {
+      line = match.exactes[0];
+      auto = true;
+      if (!DEPOSABLE.includes(line.statut)) {
+        line = await chooseLine(file, lu, match, progress,
+          `La ligne correspondante (${lineLabel(line)}) n'accepte plus de PV. Revenez à l'étape précédente depuis sa fiche pour remplacer le PV, ou choisissez une autre ligne.`);
+        auto = false;
+      }
+    } else {
+      const raison = match.exactes.length > 1
+        ? `Plusieurs lignes correspondent à la commande ${lu.commande} pour ${monthLabel(lu.mois)} : choisissez la bonne.`
+        : !lu.commande && !lu.mois
+          ? 'Aucun n° de commande ni mois (AAAA-MM) n\'a été trouvé dans le nom du fichier.'
+          : `Aucune ligne ne correspond${lu.commande ? ` à la commande ${lu.commande}` : ' (n° de commande introuvable dans le nom)'}${lu.mois ? ` pour ${monthLabel(lu.mois)}` : ' (mois introuvable dans le nom)'}.`;
+      line = await chooseLine(file, lu, match, progress, raison);
+    }
+    if (line && await depositPV(line.id, file, { auto })) done++;
+  }
+  if (pdfs.length > 1) toast(`${done} PV enregistré(s) sur ${pdfs.length}.`, done === pdfs.length ? 'success' : 'warn', 6000);
+}
+
+/** Alerte « aucune correspondance » + choix manuel de la ligne. Résout avec la ligne ou null. */
+async function chooseLine(file, lu, match, progress, raison) {
+  const ouvertes = (ls) => ls.filter((l) => DEPOSABLE.includes(l.statut));
+  const groupes = [
+    ['Même commande et même mois', ouvertes(match.exactes)],
+    ['Même commande, autre mois', ouvertes(match.memeCommande)],
+    ['Même mois', ouvertes(match.memeMois)],
+    ['Autres lignes sans PV', state.data.lignes.filter((l) => l.statut === STATUTS.ATTENDU
+      && !match.exactes.includes(l) && !match.memeCommande.includes(l) && !match.memeMois.includes(l))],
+  ].filter(([, ls]) => ls.length);
+  const sel = h('select', {}, h('option', { value: '', text: '— choisir une ligne —' }),
+    groupes.map(([label, ls]) => h('optgroup', { label },
+      M.sortLines(ls).sort((a, b) => b.mois.localeCompare(a.mois)).map((l) => h('option', { value: l.id, text: lineLabel(l) })))));
+  if (groupes.length && groupes[0][1].length === 1 && groupes[0][0] !== 'Autres lignes sans PV') sel.value = groupes[0][1][0].id;
+  const r = await modal({
+    title: `Aucune correspondance trouvée${progress}`,
+    wide: true,
+    body: h('div', {},
+      h('div', { class: 'callout callout-warn' }, icon('alert'), h('span', { text: raison })),
+      h('p', {}, 'Fichier : ', h('strong', { text: file.name }),
+        h('span', { class: 'muted', text: `  —  lu : commande ${lu.commande || '?'}, mois ${lu.mois ? monthLabel(lu.mois) : '?'}` })),
+      h('p', { class: 'muted small', text: 'Astuce : nommez vos PV « <n° de commande>_<fournisseur>_AAAA-MM.pdf » pour qu\'ils soient rattachés automatiquement.' }),
+      groupes.length ? field('Associer ce PV à la ligne', sel) : h('p', { class: 'muted', text: 'Aucune ligne ne peut recevoir de PV.' })),
+    buttons: [
+      { label: 'Ignorer ce fichier', value: null },
+      { label: 'Associer', variant: 'primary', onClick: () => {
+        if (!sel.value) throw new Error('Choisissez une ligne, ou ignorez ce fichier.');
+        return findLine(sel.value);
+      } },
+    ],
+  });
+  return r || null;
 }
 
 export async function openPV(lineId) {
