@@ -6,6 +6,16 @@ Notez les changements à venir sous `## [Non publié]` : `node scripts/release.m
 
 ## [Non publié]
 
+## [0.4.0] - 2026-11-23
+- L'import intègre toutes les périodes de l'export Abraxio en une fois
+- Abraxio fait foi : les données importées remplacent les données existantes, sauf sur les lignes « BR créé »
+- Lignes « BR créé » divergentes et lignes absentes du nouvel export signalées par une alerte (filtre « Alertes Abraxio »)
+- Une ligne « Validé » dont l'écart devient non nul après import repasse à « PV reçu »
+- Récapitulatif d'import par onglets : nouvelles, mises à jour, divergences, absentes, inchangées, ignorées
+- Vue à plat : un seul tableau avec colonne Mois, filtres Année, Mois, Fournisseur et Statut à choix multiples
+- Tri par colonne ; l'export Excel reprend les lignes affichées
+- Interface harmonisée (boutons, listes, champs, icônes) et copie par icône au survol des champs
+
 ## [0.3.0] - 2026-11-23
 - Import de l'export Abraxio par période (colonnes De et A), feuille « Données Consommé » détectée automatiquement
 - Les imputations d'une période sont additionnées par collaborateur et commande, avec le détail listé pour vérification

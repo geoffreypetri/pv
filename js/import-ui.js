@@ -1,16 +1,19 @@
-// Import d'un export Abraxio (feuille « Données Consommé ») :
-//  1. correspondance des colonnes (mémorisée),
-//  2. choix de la période (colonnes De / A) et revue : les imputations de la période sont
-//     additionnées par collaborateur × commande × poste, avec le détail listé pour vérification,
-//  3. création des lignes « Attendu » (ou mise à jour des doublons), copie du fichier brut dans imports/.
+// Import de l'export Abraxio = synchronisation (Abraxio est la source de vérité) :
+//  1. lecture du fichier ; correspondance des colonnes (demandée seulement si la correspondance
+//     mémorisée ne convient pas, ou sur demande) ;
+//  2. toutes les périodes sont lues : les imputations sont additionnées par mois × collaborateur ×
+//     commande × poste ;
+//  3. récapitulatif avant application : créations, mises à jour (Abraxio écrase), lignes « BR créé »
+//     divergentes (jamais modifiées, signalées), lignes absentes d'Abraxio (signalées), lignes ignorées ;
+//  4. application, copie du fichier brut dans imports/.
 
-import { h, modal, field, toast, pickFile } from './ui.js';
-import { state, mutate, assertWritable, notify } from './store.js';
+import { h, modal, field, toast, pickFile, icon } from './ui.js';
+import { state, mutate, assertWritable } from './store.js';
 import { readWorkbook } from './excel.js';
 import * as S from './storage.js';
 import * as M from './model.js';
-import { IMPORT_FIELDS } from './schema.js';
-import { formatEuro, monthLabel, safeFilePart, fileStamp, isValidMonth, formatDay, formatJours, normalizeKey } from './format.js';
+import { IMPORT_FIELDS, STATUT_LABELS } from './schema.js';
+import { formatEuro, monthLabel, safeFilePart, fileStamp, isValidMonth, formatDay, formatJours, normalizeKey, currentMonth } from './format.js';
 
 const ACCEPT = '.xlsx,.xls,.xlsm,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel,text/csv';
 
@@ -27,17 +30,38 @@ export async function startImport(file = null) {
   }
   if (!sheets.length) return toast('Le fichier ne contient aucun tableau exploitable.', 'error');
 
-  const step1 = await stepMapping(file, sheets);
-  if (!step1) return;
-  const { sheet, mapping, remember, mois: moisManuel } = step1;
-  const { valid, invalid } = M.mapRows(sheet.rows, mapping, { firstRowNumber: sheet.headerRow + 1 });
-  if (!valid.length) return toast('Aucune ligne exploitable avec cette correspondance de colonnes.', 'error', 7000);
-  const step2 = await stepReview({ valid, invalid, moisManuel });
-  if (!step2) return;
-  await applyImport({ file, sheet, mapping, remember, ...step2 });
+  // Correspondance mémorisée utilisable telle quelle ?
+  let cfg = savedConfig(sheets);
+  for (;;) {
+    if (!cfg) {
+      cfg = await stepMapping(file, sheets);
+      if (!cfg) return;
+    }
+    const { valid, invalid } = M.mapRows(cfg.sheet.rows, cfg.mapping, { firstRowNumber: cfg.sheet.headerRow + 1 });
+    if (!valid.length) {
+      toast('Aucune ligne exploitable avec cette correspondance de colonnes.', 'error', 7000);
+      cfg = null;
+      continue;
+    }
+    const items = M.aggregate(valid, { mois: cfg.mois });
+    const plan = M.planSync(state.data.lignes, items, { tolerance: Number(state.data.config.toleranceEcart) || 0 });
+    const r = await stepReview({ file, cfg, plan, valid, invalid, items });
+    if (r === 'mapping') { cfg = null; continue; }
+    if (!r) return;
+    await applyImport({ file, cfg, plan, invalid, items });
+    return;
+  }
 }
 
-/* ---------- Étape 1 : correspondance des colonnes ---------- */
+/** Feuille + correspondance mémorisées, si elles s'appliquent à ce fichier. */
+function savedConfig(sheets) {
+  const mapping = state.data.config.importMapping || {};
+  const sheet = sheets[defaultSheetIndex(sheets)];
+  const required = IMPORT_FIELDS.filter((f) => f.required).every((f) => mapping[f.key]);
+  const allPresent = Object.values(mapping).every((h) => sheet.headers.includes(h));
+  if (!required || !allPresent || !mapping.debut || !mapping.fin) return null;
+  return { sheet, mapping, remember: true, mois: null, auto: true };
+}
 
 function defaultSheetIndex(sheets) {
   const saved = state.data.config.importSheet;
@@ -46,13 +70,15 @@ function defaultSheetIndex(sheets) {
   return i < 0 ? 0 : i;
 }
 
+/* ---------- Étape « colonnes » ---------- */
+
 function stepMapping(file, sheets) {
   const saved = state.data.config.importMapping || {};
   let sheet = sheets[defaultSheetIndex(sheets)];
   const sheetSelect = sheets.length > 1
     ? h('select', {}, sheets.map((s, i) => h('option', { value: i, text: `${s.name} (${s.rows.length} lignes)`, selected: s === sheet })))
     : null;
-  const mois = h('input', { type: 'month', value: state.mois });
+  const mois = h('input', { type: 'month', value: currentMonth() });
   const moisField = field('Mois concerné', mois, 'Fichier sans colonnes de période : choisissez le mois des lignes importées.');
   const selects = {};
   const mapGrid = h('div', { class: 'form-grid' });
@@ -133,119 +159,119 @@ function stepMapping(file, sheets) {
   });
 }
 
-/* ---------- Étape 2 : période et revue ---------- */
+/* ---------- Étape « récapitulatif » ---------- */
 
-const CHAMP_LABELS = { fournisseur: 'Fournisseur', montantAttendu: 'Montant', jours: 'Jours' };
-const fmtVal = (k, v) => (k === 'montantAttendu' ? formatEuro(v) : k === 'jours' ? formatJours(v) : String(v ?? '') || '∅');
+const fmtChange = (c) => {
+  const v = (x) => (c.champ === 'montantAttendu' ? formatEuro(x) : c.champ === 'jours' ? formatJours(x)
+    : c.champ === 'periode' ? (x ? `${formatDay(x.debut)} → ${formatDay(x.fin)}` : '∅') : String(x ?? '') || '∅');
+  return c.champ === 'details' ? 'Détail des imputations' : `${c.label} : ${v(c.avant)} → ${v(c.apres)}`;
+};
 
-function stepReview({ valid, invalid, moisManuel }) {
-  const periods = moisManuel ? [] : M.listPeriods(valid);
-  const periodSelect = periods.length
-    ? h('select', {}, periods.map((p, i) => h('option', {
-      value: i,
-      text: `${formatDay(p.debut)} → ${formatDay(p.fin)}  —  ${p.lignes} imputations, ${formatEuro(p.montant)}`,
-    })))
-    : null;
-  const content = h('div');
-  let current = null; // { period, mois, items, plan, choices }
+function stepReview({ file, cfg, plan, valid, invalid, items }) {
+  const rejets = M.summarizeInvalid(invalid);
+  const moisTxt = plan.moisCouverts.length
+    ? `${monthLabel(plan.moisCouverts[0])} → ${monthLabel(plan.moisCouverts.at(-1))}` : '—';
+  const total = items.reduce((a, i) => a + i.fields.montantAttendu, 0);
+  const nbReval = plan.modifications.filter((m) => m.revalidation).length;
+  const nouvellesAbsentes = plan.absentes.filter((l) => l.alerteAbraxio?.type !== 'absente');
 
-  function compute() {
-    const period = periods.length ? periods[Number(periodSelect.value)] : null;
-    const mois = period ? period.mois : moisManuel;
-    const items = M.aggregate(valid, period);
-    const plan = M.planImport(state.data.lignes, items, mois);
-    const choices = new Map();
-    for (const d of plan.doublons) if (d.existing) choices.set(d, d.changes.length ? 'maj' : 'ignorer');
-    current = { period, mois, items, plan, choices };
-    render();
+  const sections = [
+    { key: 'creations', label: 'Nouvelles', count: plan.creations.length, render: () => itemsTable(plan.creations.map((it) => ({ it }))) },
+    { key: 'modifications', label: 'Mises à jour', count: plan.modifications.length, render: () => itemsTable(plan.modifications.map((m) => ({ it: m.item, line: m.line, changes: m.changes, note: m.revalidation ? 'Repasse à « PV reçu » : à revalider' : '' }))) },
+    { key: 'protegees', label: 'BR créé — divergences', count: plan.protegees.length, tone: 'warn', render: () => itemsTable(plan.protegees.map((p) => ({ it: p.item, line: p.line, changes: p.changes, note: 'Non modifiée (BR créé) : divergence signalée' }))) },
+    { key: 'absentes', label: 'Absentes d\'Abraxio', count: plan.absentes.length, tone: 'warn', render: () => linesTable(plan.absentes) },
+    { key: 'identiques', label: 'Inchangées', count: plan.identiques.length, render: () => itemsTable(plan.identiques.map((x) => ({ it: x.item, line: x.line }))) },
+    { key: 'ignorees', label: 'Lignes ignorées', count: invalid.length, render: () => ignoredTable(invalid) },
+  ];
+  const panel = h('div', { class: 'tab-panel' });
+  const tabs = h('div', { class: 'tabs', role: 'tablist' });
+  let current = sections.find((s) => s.count && s.key !== 'identiques' && s.key !== 'ignorees') || sections[0];
+  function show(sec) {
+    current = sec;
+    for (const b of tabs.children) b.classList.toggle('active', b.dataset.key === sec.key);
+    panel.replaceChildren(sec.count ? sec.render() : h('p', { class: 'muted empty', text: 'Aucune ligne.' }));
   }
-
-  function render() {
-    const { period, mois, items, plan, choices } = current;
-    const dupOf = new Map(plan.doublons.map((d) => [d.incoming, d]));
-    const total = items.reduce((a, i) => a + i.fields.montantAttendu, 0);
-    const nbImputations = items.reduce((a, i) => a + i.details.length, 0);
-    const autres = valid.length - nbImputations;
-    const realDups = plan.doublons.filter((d) => d.existing);
-
-    const rows = [];
-    for (const it of items) {
-      const d = dupOf.get(it);
-      let action;
-      if (!d) action = h('span', { class: 'badge badge-pv_recu', text: 'Nouvelle' });
-      else if (d.inFile) action = h('span', { class: 'muted small', text: 'Doublon dans le fichier' });
-      else {
-        const sel = h('select', { class: 'select-small', onchange: () => choices.set(d, sel.value), onclick: (e) => e.stopPropagation() },
-          h('option', { value: 'ignorer', text: d.changes.length ? 'Ignorer' : 'Déjà importée', selected: choices.get(d) === 'ignorer' }),
-          h('option', { value: 'maj', text: 'Mettre à jour', selected: choices.get(d) === 'maj', disabled: !d.changes.length }));
-        action = h('div', {}, sel, d.changes.length
-          ? h('div', { class: 'cell-sub', text: d.changes.map((c) => `${CHAMP_LABELS[c.champ]} : ${fmtVal(c.champ, c.avant)} → ${fmtVal(c.champ, c.apres)}`).join(' · ') })
-          : null);
-      }
-      const f = it.fields;
-      const toggle = h('button', { type: 'button', class: 'btn btn-ghost btn-small', text: `${it.details.length} ligne${it.details.length > 1 ? 's' : ''} ▸` });
-      const tr = h('tr', { class: 'row-toggle' },
-        h('td', {}, h('div', { class: 'cell-main', text: f.collaborateur }), f.prestation ? h('div', { class: 'cell-sub', text: f.prestation }) : null),
-        h('td', { text: f.fournisseur }),
-        h('td', {}, h('div', { text: f.commande }), f.poste ? h('div', { class: 'cell-sub', text: f.poste }) : null),
-        h('td', { class: 'num', text: formatJours(f.jours) }),
-        h('td', { class: 'num', text: formatEuro(f.montantAttendu) }),
-        h('td', {}, toggle),
-        h('td', {}, action));
-      const sub = h('tr', { class: 'detail-row', hidden: true }, h('td', { colSpan: 7 }, detailsTable(it.details, f)));
-      const flip = () => { sub.hidden = !sub.hidden; toggle.textContent = toggle.textContent.replace(/[▸▾]/, sub.hidden ? '▸' : '▾'); };
-      tr.addEventListener('click', flip);
-      rows.push(tr, sub);
-    }
-
-    const rejets = M.summarizeInvalid(invalid);
-    content.replaceChildren(...[
-      h('ul', { class: 'import-summary' },
-        h('li', {}, h('strong', { text: items.length }), ` ligne(s) de PV pour ${monthLabel(mois)}, total `, h('strong', { text: formatEuro(total) }),
-          ` — somme de ${nbImputations} imputation(s)`),
-        h('li', {}, h('strong', { text: plan.nouvelles.length }), ' nouvelle(s), ', h('strong', { text: realDups.length }), ' déjà présente(s) pour ce mois'),
-        autres > 0 ? h('li', { class: 'muted' }, `${autres} imputation(s) d'autres périodes non concernée(s)`) : null,
-        rejets.length ? h('li', { class: 'muted' }, `${invalid.length} ligne(s) du fichier ignorée(s) : `,
-          rejets.map((r) => `${r.count} ${r.motif}`).join(' ; ')) : null),
-      realDups.length ? h('p', {}, 'Lignes déjà présentes : ',
-        h('button', { type: 'button', class: 'btn btn-small', text: 'Tout ignorer', onclick: () => setAll('ignorer') }), ' ',
-        h('button', { type: 'button', class: 'btn btn-small', text: 'Tout mettre à jour', onclick: () => setAll('maj') }),
-        h('span', { class: 'muted small', text: '  La mise à jour ne modifie ni le statut, ni le PV, ni le BR.' })) : null,
-      h('p', { class: 'muted small', text: 'Cliquez sur une ligne pour voir les imputations additionnées.' }),
-      h('div', { class: 'table-wrap review' }, h('table', { class: 'grid small' },
-        h('thead', {}, h('tr', {}, ['Collaborateur', 'Fournisseur', 'Commande', 'Jours', 'Montant', 'Détail', 'Action'].map((t, i) => h('th', { class: i === 3 || i === 4 ? 'num' : '', text: t })))),
-        h('tbody', {}, rows),
-        h('tfoot', {}, h('tr', {},
-          h('td', { colSpan: 3, text: 'Total' }),
-          h('td', { class: 'num', text: formatJours(items.reduce((a, i) => a + (i.fields.jours || 0), 0)) }),
-          h('td', { class: 'num', text: formatEuro(total) }),
-          h('td', { colSpan: 2 })))))].filter(Boolean));
+  for (const sec of sections) {
+    tabs.append(h('button', { type: 'button', class: `tab ${sec.tone && sec.count ? 'tab-' + sec.tone : ''}`, role: 'tab', dataset: { key: sec.key }, onclick: () => show(sec) },
+      sec.label, h('span', { class: 'tab-count', text: sec.count })));
   }
+  show(current);
 
-  function setAll(v) {
-    for (const d of current.plan.doublons) if (d.existing && (v === 'ignorer' || d.changes.length)) current.choices.set(d, v);
-    render();
-  }
-
-  if (periodSelect) periodSelect.addEventListener('change', compute);
-  compute();
+  const nothing = !plan.creations.length && !plan.modifications.length && !plan.protegees.length && !nouvellesAbsentes.length && !plan.reapparues.length;
 
   return modal({
-    title: 'Import Abraxio — période',
-    wide: true,
+    title: 'Import Abraxio — récapitulatif',
     className: 'modal-xwide',
     body: h('div', {},
-      periodSelect ? field('Période à importer (colonnes De → A)', periodSelect, 'Le mois des lignes créées est celui du début de la période.') : null,
-      content),
+      h('p', { class: 'muted' }, h('strong', { text: file.name }), ` · feuille « ${cfg.sheet.name} » · ${valid.length} imputations · ${items.length} lignes de PV · ${moisTxt} · ${formatEuro(total)}`),
+      h('div', { class: 'callout' }, icon('alert'), h('span', {},
+        'Abraxio fait foi : les nouvelles valeurs remplacent les anciennes, sauf sur les lignes « BR créé », qui ne sont jamais modifiées (la divergence est seulement signalée). '
+        + 'Le statut, le PV déposé, le n° de BR et le commentaire ne sont pas touchés.'
+        + (nbReval ? ` ${nbReval} ligne(s) « Validé » repasseront à « PV reçu » car leur écart devient non nul.` : ''))),
+      rejets.length ? h('p', { class: 'muted small' }, `Ignorées : ${rejets.map((r) => `${r.count} ${r.motif}`).join(' ; ')}.`) : null,
+      tabs,
+      panel),
     buttons: [
+      { label: 'Modifier les colonnes', value: 'mapping', start: true },
       { label: 'Annuler', value: null },
-      { label: 'Importer', variant: 'primary', onClick: () => {
-        const toUpdate = current.plan.doublons.filter((d) => d.existing && current.choices.get(d) === 'maj');
-        if (!current.plan.nouvelles.length && !toUpdate.length) throw new Error('Rien à importer (toutes les lignes sont déjà présentes ou ignorées).');
-        return { ...current, toUpdate, nbInvalid: invalid.length };
+      { label: nothing ? 'Déjà à jour' : 'Appliquer', variant: 'primary', onClick: () => {
+        if (nothing) throw new Error('Les données sont déjà à jour : rien à appliquer.');
+        return true;
       } },
     ],
   });
+}
+
+function itemsTable(rows) {
+  const trs = [];
+  for (const { it, line, changes, note } of rows) {
+    const f = it.fields;
+    const toggle = h('button', { type: 'button', class: 'btn btn-ghost btn-sm' }, `${it.details.length} imputation${it.details.length > 1 ? 's' : ''}`, icon('chevronDown', { size: 14 }));
+    const tr = h('tr', { class: 'row-toggle' },
+      h('td', { class: 'nowrap', text: monthLabel(f.mois) }),
+      h('td', {}, h('div', { class: 'cell-main', text: f.collaborateur }), f.prestation ? h('div', { class: 'cell-sub', text: f.prestation }) : null),
+      h('td', { text: f.fournisseur }),
+      h('td', {}, h('div', { text: f.commande }), f.poste ? h('div', { class: 'cell-sub', text: f.poste }) : null),
+      h('td', { class: 'num', text: formatJours(f.jours) }),
+      h('td', { class: 'num', text: formatEuro(f.montantAttendu) }),
+      h('td', {},
+        line ? h('div', { class: 'small' }, h('span', { class: `badge badge-${line.statut}`, text: STATUT_LABELS[line.statut] })) : null,
+        changes?.length ? h('ul', { class: 'changes' }, changes.map((c) => h('li', { text: fmtChange(c) }))) : null,
+        note ? h('div', { class: 'cell-sub warn-text', text: note }) : null),
+      h('td', {}, toggle));
+    const sub = h('tr', { class: 'detail-row', hidden: true }, h('td', { colSpan: 8 }, detailsTable(it.details, f)));
+    tr.addEventListener('click', () => { sub.hidden = !sub.hidden; tr.classList.toggle('open', !sub.hidden); });
+    trs.push(tr, sub);
+  }
+  return h('div', { class: 'table-wrap review' }, h('table', { class: 'grid small' },
+    h('thead', {}, h('tr', {}, ['Mois', 'Collaborateur', 'Fournisseur', 'Commande', 'Jours', 'Montant', 'Changements', ''].map((t, i) => h('th', { class: i === 4 || i === 5 ? 'num' : '', text: t })))),
+    h('tbody', {}, trs)));
+}
+
+function linesTable(lines) {
+  return h('div', { class: 'table-wrap review' }, h('table', { class: 'grid small' },
+    h('thead', {}, h('tr', {}, ['Mois', 'Collaborateur', 'Fournisseur', 'Commande', 'Montant attendu', 'Statut'].map((t) => h('th', { text: t })))),
+    h('tbody', {}, lines.map((l) => h('tr', {},
+      h('td', { class: 'nowrap', text: monthLabel(l.mois) }),
+      h('td', { text: l.collaborateur }),
+      h('td', { text: l.fournisseur }),
+      h('td', { text: l.commande + (l.poste ? ` / ${l.poste}` : '') }),
+      h('td', { class: 'num', text: formatEuro(l.montantAttendu) }),
+      h('td', {}, h('span', { class: `badge badge-${l.statut}`, text: STATUT_LABELS[l.statut] })))))),
+  h('p', { class: 'muted small', text: 'Ces lignes sont conservées et marquées « Absente d\'Abraxio » : filtrez sur « Alertes Abraxio » pour les retrouver et les supprimer si besoin.' }));
+}
+
+function ignoredTable(invalid) {
+  const shown = invalid.slice(0, 300);
+  return h('div', { class: 'table-wrap review' }, h('table', { class: 'grid small' },
+    h('thead', {}, h('tr', {}, ['Ligne', 'Collaborateur', 'Fournisseur', 'Montant', 'Motif'].map((t) => h('th', { text: t })))),
+    h('tbody', {}, shown.map((r) => h('tr', {},
+      h('td', { class: 'num', text: r.rowNumber }),
+      h('td', { text: r.fields.collaborateur || '—' }),
+      h('td', { text: r.fields.fournisseur || '—' }),
+      h('td', { class: 'num', text: formatEuro(r.fields.montant) }),
+      h('td', { class: 'muted', text: r.errors.join(', ') }))))),
+  invalid.length > shown.length ? h('p', { class: 'muted small', text: `… et ${invalid.length - shown.length} autres.` }) : null);
 }
 
 /** Tableau des imputations additionnées (utilisé aussi dans la fiche d'une ligne). */
@@ -268,12 +294,12 @@ export function detailsTable(details, totals = {}) {
       h('td'))) : null);
 }
 
-/* ---------- Étape 3 : application ---------- */
+/* ---------- Application ---------- */
 
-async function applyImport({ file, sheet, mapping, remember, period, mois, plan, toUpdate, nbInvalid }) {
+async function applyImport({ file, cfg, plan, invalid, items }) {
   const ext = (file.name.match(/\.[A-Za-z0-9]+$/) || ['.xlsx'])[0].toLowerCase();
   const baseName = file.name.replace(/\.[^.]+$/, '');
-  const copyPath = `imports/${mois}_${fileStamp(new Date(), true)}_${safeFilePart(baseName, 60)}${ext}`;
+  const copyPath = `imports/${fileStamp(new Date(), true)}_${safeFilePart(baseName, 60)}${ext}`;
   try {
     await S.copyInto(state.dir, copyPath, file);
   } catch (e) {
@@ -282,31 +308,32 @@ async function applyImport({ file, sheet, mapping, remember, period, mois, plan,
   const importId = globalThis.crypto.randomUUID();
   try {
     await mutate((d) => {
-      for (const it of plan.nouvelles) d.lignes.push(M.lineFromImport(it, mois, importId));
-      for (const dup of toUpdate) M.updateFromImport(dup.existing, dup.incoming.fields, importId, dup.incoming.details);
-      if (remember) {
-        d.config.importMapping = mapping;
-        d.config.importSheet = sheet.name;
+      M.applySync(d, plan, importId);
+      if (cfg.remember) {
+        d.config.importMapping = cfg.mapping;
+        d.config.importSheet = cfg.sheet.name;
       }
       d.imports.push({
         id: importId,
         date: new Date().toISOString(),
-        mois,
-        periode: period ? { debut: period.debut, fin: period.fin } : null,
         fichierOrigine: file.name,
-        feuille: sheet.name,
+        feuille: cfg.sheet.name,
         copie: copyPath,
-        lignesCreees: plan.nouvelles.length,
-        lignesMisesAJour: toUpdate.length,
-        lignesIgnorees: plan.doublons.length - toUpdate.length,
-        lignesFichierIgnorees: nbInvalid,
+        mois: plan.moisCouverts,
+        lignes: items.length,
+        lignesCreees: plan.creations.length,
+        lignesMisesAJour: plan.modifications.length,
+        lignesInchangees: plan.identiques.length,
+        divergencesBR: plan.protegees.length,
+        absentes: plan.absentes.length,
+        lignesFichierIgnorees: invalid.length,
       });
     });
   } catch (e) {
     return toast(e.message, 'error', 8000);
   }
-  state.mois = mois;
-  state.filters = { q: '', fournisseur: '', statut: '' };
-  notify();
-  toast(`Import terminé : ${plan.nouvelles.length} ligne(s) créée(s), ${toUpdate.length} mise(s) à jour.`, 'success', 6000);
+  const parts = [`${plan.creations.length} créée(s)`, `${plan.modifications.length} mise(s) à jour`];
+  if (plan.protegees.length) parts.push(`${plan.protegees.length} divergence(s) sur BR créé`);
+  if (plan.absentes.length) parts.push(`${plan.absentes.length} absente(s) d'Abraxio`);
+  toast(`Import terminé : ${parts.join(', ')}.`, 'success', 7000);
 }

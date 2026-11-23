@@ -101,7 +101,7 @@ test('compteurs, filtres et tri', () => {
   assert.equal(c.attendu, 1); assert.equal(c.pv_recu, 1); assert.equal(c.total, 2);
   assert.equal(M.filterLines([a, b], { q: 'bruno' }).length, 1);
   assert.equal(M.filterLines([a, b], { q: 'societe' }).length, 1);
-  assert.equal(M.filterLines([a, b], { statut: 'attendu' })[0], a);
+  assert.equal(M.filterLines([a, b], { statuts: ['attendu'] })[0], a);
   assert.equal(M.sortLines([a, b])[0], b); // « à valider » avant « attendu »
 });
 
@@ -178,61 +178,136 @@ test('mapRows : lignes valides, motifs de rejet, colonnes source conservées', (
   assert.equal(invalid[0].rowNumber, 7);
 });
 
-test('périodes détectées, de la plus récente à la plus ancienne', () => {
+test('agrégation : toutes les périodes, une ligne par mois × collaborateur × commande × poste', () => {
   const { valid } = M.mapRows(ROWS, MAP);
-  const p = M.listPeriods(valid);
-  assert.deepEqual(p.map((x) => `${x.debut}>${x.fin}:${x.lignes}`), ['2026-10-01>2026-10-31:4', '2026-09-01>2026-09-30:1']);
-  assert.equal(p[0].mois, '2026-10');
-  assert.equal(p[0].montant, 8400.25);
-});
-
-test('agrégation par période : somme des imputations, détail conservé', () => {
-  const { valid } = M.mapRows(ROWS, MAP);
-  const items = M.aggregate(valid, { debut: '2026-10-01', fin: '2026-10-31' });
-  assert.equal(items.length, 2);
-  const alice = items.find((i) => i.fields.collaborateur === 'Alice');
+  const items = M.aggregate(valid);
+  assert.deepEqual(items.map((i) => `${i.fields.mois} ${i.fields.collaborateur}`), ['2026-10 Alice', '2026-10 Bruno', '2026-09 Alice']);
+  const alice = items[0];
   assert.equal(alice.fields.montantAttendu, 4000.25);
   assert.equal(alice.fields.jours, 8);
   assert.deepEqual(alice.fields.periode, { debut: '2026-10-01', fin: '2026-10-31' });
   assert.deepEqual(alice.details.map((d) => d.libelle), ['Run', 'Projet A', 'Projet B']);
-  assert.deepEqual(alice.details.map((d) => d.montant), [1000, 2500, 500.25]);
   assert.equal(alice.details[0].prixUnitaire, 500);
-  // Sans période : tout le fichier
-  assert.equal(M.aggregate(valid, null).find((i) => i.fields.collaborateur === 'Alice').fields.montantAttendu, 4900.25);
+  assert.equal(items[2].fields.montantAttendu, 900);
+  // Fichier sans période : mois fourni
+  const sansDates = M.mapRows(ROWS.map(({ De, A, ...r }) => r), { ...MAP, debut: undefined, fin: undefined }).valid;
+  assert.deepEqual(M.aggregate(sansDates, { mois: '2026-08' }).map((i) => i.fields.mois), ['2026-08', '2026-08']);
   const l = M.lineFromImport(alice, '2026-10', 'imp');
   assert.equal(l.statut, 'attendu');
   assert.equal(l.details.length, 3);
-  assert.equal(l.jours, 8);
   assert.equal(l.prestation, 'Dev');
 });
 
-test('détection des doublons (collaborateur + commande + poste + mois)', () => {
-  const existing = [mk()];
-  const items = [
-    { fields: { collaborateur: 'alice  MARTIN', fournisseur: 'X', commande: '4500000001', poste: '10', montantAttendu: 1200, jours: 2 } },
-    { fields: { collaborateur: 'Alice Martin', fournisseur: 'X', commande: '4500000001', poste: '20', montantAttendu: 1200 } },
-    { fields: { collaborateur: 'Chloé', fournisseur: 'X', commande: '4500000002', poste: '', montantAttendu: 500 } },
-    { fields: { collaborateur: 'Chloe', fournisseur: 'X', commande: '4500000002', poste: '', montantAttendu: 500 } },
-  ];
-  const plan = M.planImport(existing, items, '2026-11');
-  assert.equal(plan.nouvelles.length, 2);
-  assert.equal(plan.doublons.length, 2);
-  assert.equal(plan.doublons[0].existing, existing[0]);
-  assert.deepEqual(plan.doublons[0].changes.map((c) => c.champ), ['fournisseur', 'montantAttendu', 'jours']);
-  assert.equal(plan.doublons[1].inFile, true);
-  assert.equal(M.planImport(existing, items, '2026-12').nouvelles.length, 3);
+/* ---------- Synchronisation ---------- */
+
+const item = (over = {}, details = [{ libelle: 'Run', quantite: 2, prixUnitaire: 500, montant: 1000 }]) => ({
+  fields: { mois: '2026-11', collaborateur: 'Alice Martin', fournisseur: 'Société Fictive & Cie', commande: '4500000001', poste: '10',
+    prestation: '', montantAttendu: 1000, jours: 2, periode: { debut: '2026-11-01', fin: '2026-11-30' }, ...over },
+  details, source: {},
+});
+const imported = (over = {}) => {
+  const l = M.lineFromImport(item(over), over.mois || '2026-11', 'imp0');
+  return l;
+};
+const sync = (lines, items, opts) => {
+  const plan = M.planSync(lines, items, opts);
+  const data = { lignes: lines };
+  M.applySync(data, plan, 'imp1');
+  return { plan, data };
+};
+
+test('sync : création des lignes absentes de l\'application', () => {
+  const { plan, data } = sync([], [item(), item({ collaborateur: 'Bruno', mois: '2026-10' })]);
+  assert.equal(plan.creations.length, 2);
+  assert.deepEqual(plan.moisCouverts, ['2026-10', '2026-11']);
+  assert.deepEqual(data.lignes.map((l) => l.mois), ['2026-11', '2026-10']);
 });
 
-test('mise à jour par import : statut et PV conservés, détail remplacé', () => {
-  const l = mk();
-  M.applyPV(l, { fichierPV: 'x.pdf', montantPV: 1000 });
-  M.updateFromImport(l, { fournisseur: 'Nouveau', poste: '20', montantAttendu: 1100, jours: 2 }, 'imp1', [{ libelle: 'Run', montant: 1100 }]);
+test('sync : Abraxio écrase les données existantes (statut, PV, commentaire conservés)', () => {
+  const l = imported();
+  M.applyPV(l, { fichierPV: 'x.pdf', montantPV: 1000, commentaire: 'note' });
+  l.fournisseur = 'Saisie manuelle';
+  const { plan } = sync([l], [item({ montantAttendu: 1100, jours: 2.2, collaborateur: 'ALICE MARTIN' },
+    [{ libelle: 'Run', quantite: 2.2, prixUnitaire: 500, montant: 1100 }])]);
+  assert.equal(plan.modifications.length, 1);
+  assert.deepEqual(plan.modifications[0].changes.map((c) => c.champ), ['collaborateur', 'fournisseur', 'montantAttendu', 'jours', 'details']);
+  assert.equal(l.collaborateur, 'ALICE MARTIN');
+  assert.equal(l.fournisseur, 'Société Fictive & Cie');
+  assert.equal(l.montantAttendu, 1100);
+  assert.equal(l.details[0].montant, 1100);
   assert.equal(l.statut, 'pv_recu');
   assert.equal(l.fichierPV, 'x.pdf');
-  assert.equal(l.montantAttendu, 1100);
-  assert.equal(l.jours, 2);
-  assert.equal(l.details.length, 1);
+  assert.equal(l.commentaire, 'note');
   assert.equal(M.computeEcart(l), -100);
+  assert.match(l.historique.at(-1).detail, /Mis à jour depuis Abraxio : Collaborateur, Fournisseur, Montant attendu/);
+});
+
+test('sync : ligne identique → rien ne change', () => {
+  const l = imported();
+  const before = JSON.stringify(l.historique);
+  const { plan } = sync([l], [item()]);
+  assert.equal(plan.identiques.length, 1);
+  assert.equal(plan.modifications.length, 0);
+  assert.equal(JSON.stringify(l.historique), before);
+});
+
+test('sync : ligne « BR créé » jamais modifiée, divergence signalée puis levée', () => {
+  const l = imported();
+  M.applyPV(l, { fichierPV: 'x.pdf', montantPV: 1000 });
+  M.validate(l);
+  M.setBR(l, { numeroBR: '42' });
+  const { plan } = sync([l], [item({ montantAttendu: 1200 })]);
+  assert.equal(plan.protegees.length, 1);
+  assert.equal(l.montantAttendu, 1000);
+  assert.equal(l.statut, 'br_cree');
+  assert.equal(l.alerteAbraxio.type, 'divergence');
+  assert.deepEqual(l.alerteAbraxio.changes.map((c) => [c.champ, c.avant, c.apres]), [['montantAttendu', 1000, 1200]]);
+  sync([l], [item()]);
+  assert.equal(l.alerteAbraxio, null);
+});
+
+test('sync : ligne « Validé » dont l\'écart devient non nul → repasse à « PV reçu »', () => {
+  const l = imported();
+  M.applyPV(l, { fichierPV: 'x.pdf', montantPV: 1000 });
+  M.validate(l);
+  const { plan } = sync([l], [item({ montantAttendu: 1050 })]);
+  assert.equal(plan.modifications[0].revalidation, true);
+  assert.equal(l.statut, 'pv_recu');
+  assert.match(l.historique.at(-1).detail, /à revalider/);
+  // Écart dans la tolérance, ou changement sans effet sur l'écart : le statut reste « Validé »
+  const l2 = imported();
+  M.applyPV(l2, { fichierPV: 'x.pdf', montantPV: 1000 });
+  M.validate(l2);
+  sync([l2], [item({ montantAttendu: 1005 })], { tolerance: 10 });
+  assert.equal(l2.statut, 'valide');
+  sync([l2], [item({ montantAttendu: 1000, prestation: 'Renommée' })]);
+  assert.equal(l2.statut, 'valide');
+});
+
+test('sync : lignes absentes d\'Abraxio signalées (mois couverts, lignes importées seulement)', () => {
+  const restee = imported({ collaborateur: 'Restée' });
+  const disparue = imported({ collaborateur: 'Disparue' });
+  const autreMois = imported({ collaborateur: 'Autre mois', mois: '2026-01' });
+  const manuelle = M.createLine({ collaborateur: 'Manuelle', fournisseur: 'X', commande: '1', montantAttendu: 1 }, { mois: '2026-11' });
+  const { plan } = sync([restee, disparue, autreMois, manuelle], [item({ collaborateur: 'Restée' })]);
+  assert.deepEqual(plan.absentes, [disparue]);
+  assert.equal(disparue.alerteAbraxio.type, 'absente');
+  assert.equal(autreMois.alerteAbraxio, null);
+  assert.equal(manuelle.alerteAbraxio, null);
+  const n = disparue.historique.length;
+  sync([restee, disparue], [item({ collaborateur: 'Restée' })]); // toujours absente : pas de nouvel historique
+  assert.equal(disparue.historique.length, n);
+  const { plan: p2 } = sync([restee, disparue], [item({ collaborateur: 'Restée' }), item({ collaborateur: 'Disparue' })]);
+  assert.deepEqual(p2.reapparues, [disparue]);
+  assert.equal(disparue.alerteAbraxio, null);
+});
+
+test('sync : litige modifié comme les autres statuts non finaux', () => {
+  const l = imported();
+  M.setLitige(l, 'x');
+  sync([l], [item({ montantAttendu: 900 })]);
+  assert.equal(l.montantAttendu, 900);
+  assert.equal(l.statut, 'litige');
 });
 
 test('export : colonnes et valeurs calculées', () => {
@@ -251,10 +326,23 @@ test('modèle d\'URL SAP', () => {
   assert.equal(M.fillTemplate('', l), '');
 });
 
-test('mois affiché au démarrage', () => {
-  const L = (mois) => ({ mois });
-  assert.equal(M.defaultMonth([L('2026-10'), L('2026-11')], '2026-11'), '2026-11');
-  assert.equal(M.defaultMonth([L('2026-09'), L('2026-10')], '2026-11'), '2026-10');
-  assert.equal(M.defaultMonth([L('2027-01')], '2026-11'), '2027-01');
-  assert.equal(M.defaultMonth([], '2026-11'), '2026-11');
+test('vue à plat : filtres année, mois, fournisseurs, statuts, alertes et tri par colonne', () => {
+  const L = (mois, collaborateur, fournisseur, statut, montantAttendu, alerte = null) =>
+    ({ ...mk({ collaborateur, fournisseur, montantAttendu }), mois, statut, alerteAbraxio: alerte });
+  const lines = [
+    L('2026-10', 'Alice', 'F1', 'attendu', 100),
+    L('2026-11', 'Bruno', 'F2', 'br_cree', 300, { type: 'divergence' }),
+    L('2025-12', 'Chloé', 'F1', 'pv_recu', 200),
+  ];
+  const names = (ls) => ls.map((l) => l.collaborateur).join(',');
+  assert.equal(names(M.filterLines(lines, { annee: '2026' })), 'Alice,Bruno');
+  assert.equal(names(M.filterLines(lines, { mois: ['2026-10', '2025-12'] })), 'Alice,Chloé');
+  assert.equal(names(M.filterLines(lines, { fournisseurs: ['F1'] })), 'Alice,Chloé');
+  assert.equal(names(M.filterLines(lines, { statuts: ['br_cree', 'pv_recu'] })), 'Bruno,Chloé');
+  assert.equal(names(M.filterLines(lines, { alertes: true })), 'Bruno');
+  assert.equal(names(M.filterLines(lines, { annee: '2026', fournisseurs: ['F1'] })), 'Alice');
+  assert.equal(names(M.sortLines(lines)), 'Bruno,Alice,Chloé'); // mois décroissant
+  assert.equal(names(M.sortLines(lines, { key: 'montantAttendu', dir: 'desc' })), 'Bruno,Chloé,Alice');
+  assert.equal(names(M.sortLines(lines, { key: 'collaborateur' })), 'Alice,Bruno,Chloé');
+  assert.deepEqual(M.yearsInData(lines), ['2026', '2025']);
 });

@@ -1,11 +1,11 @@
 // Actions sur une ligne : dépôt de PV, ouverture, validation, fiche « Prêt pour SAP », détail.
 
-import { h, modal, confirmDialog, field, copyText, toast, pickFile, copyable, withCopy } from './ui.js';
+import { h, modal, confirmDialog, field, toast, pickFile, copyable, withCopy, copyField, icon } from './ui.js';
 import { state, mutate, assertWritable, findLine } from './store.js';
 import * as S from './storage.js';
 import * as M from './model.js';
 import { STATUTS, STATUT_LABELS } from './schema.js';
-import { formatEuro, formatForSap, formatDate, formatDateTime, parseAmount, monthLabel, isoDay, isValidMonth, formatDay, formatJours } from './format.js';
+import { formatEuro, formatForSap, formatDate, formatDateTime, parseAmount, monthLabel, isoDay, isValidMonth, formatDay, formatJours, currentMonth, formatNumber } from './format.js';
 import { detailsTable } from './import-ui.js';
 
 const tolerance = () => Number(state.data?.config?.toleranceEcart) || 0;
@@ -29,12 +29,28 @@ function summary(line) {
   return h('dl', { class: 'summary' },
     h('dt', { text: 'Collaborateur' }), h('dd', { text: line.collaborateur }),
     h('dt', { text: 'Fournisseur' }), h('dd', { text: line.fournisseur }),
-    h('dt', { text: 'Commande' }), h('dd', {}, copyable(line.commande, { title: 'Copier le n° de commande' })),
+    h('dt', { text: 'Commande' }), h('dd', {}, copyable(line.commande, { label: 'Copier le n° de commande' })),
     line.poste ? [h('dt', { text: 'Poste' }), h('dd', { text: line.poste })] : null,
     line.prestation ? [h('dt', { text: 'Prestation' }), h('dd', { text: line.prestation })] : null,
     h('dt', { text: 'Période' }), h('dd', { text: periodeLabel(line) }),
     line.jours !== null ? [h('dt', { text: 'Jours' }), h('dd', { text: formatJours(line.jours) })] : null,
     h('dt', { text: 'Montant attendu' }), h('dd', { text: formatEuro(line.montantAttendu) }));
+}
+
+/** Texte de l'alerte de synchronisation Abraxio d'une ligne. */
+export function alerteText(line) {
+  const a = line.alerteAbraxio;
+  if (!a) return '';
+  if (a.type === 'absente') return `Absente du dernier export Abraxio (import du ${formatDate(a.date)}).`;
+  const fmt = (c, v) => (c.champ === 'montantAttendu' ? formatEuro(v) : c.champ === 'jours' ? formatJours(v)
+    : c.champ === 'periode' ? (v ? `${formatDay(v.debut)} → ${formatDay(v.fin)}` : '∅') : String(v ?? '∅'));
+  const list = (a.changes || []).map((c) => (c.champ === 'details' ? c.label : `${c.label} : ${fmt(c, c.avant)} → ${fmt(c, c.apres)}`));
+  return `BR créé : la ligne n'est plus modifiée, mais Abraxio indique d'autres valeurs (${list.join(' ; ')}).`;
+}
+
+function alerteBox(line) {
+  if (!line.alerteAbraxio) return null;
+  return h('div', { class: 'callout callout-warn' }, icon('alert'), h('span', { text: alerteText(line) }));
 }
 
 export function periodeLabel(line) {
@@ -52,7 +68,7 @@ function importDetails(line) {
 /** Champ montant avec aperçu de l'écart en direct. */
 function amountInput(line, initial) {
   const input = h('input', { type: 'text', inputMode: 'decimal', class: 'amount-input', autocomplete: 'off',
-    value: initial === null || initial === undefined ? '' : String(initial).replace('.', ','), placeholder: '0,00' });
+    value: initial === null || initial === undefined ? '' : formatNumber(initial), placeholder: '0,00' });
   const preview = h('span', { class: 'ecart-preview' });
   const update = () => {
     const m = parseAmount(input.value);
@@ -65,8 +81,8 @@ function amountInput(line, initial) {
   };
   input.addEventListener('input', update);
   update();
-  const same = h('button', { type: 'button', class: 'btn btn-small', text: '= montant attendu',
-    title: 'Reprendre le montant attendu', onclick: () => { input.value = String(line.montantAttendu ?? '').replace('.', ','); update(); input.focus(); } });
+  const same = h('button', { type: 'button', class: 'btn btn-sm', text: '= montant attendu',
+    title: 'Reprendre le montant attendu', onclick: () => { input.value = formatNumber(line.montantAttendu); update(); input.focus(); } });
   return { input, wrap: h('div', { class: 'amount-row' }, input, same, preview) };
 }
 
@@ -162,15 +178,6 @@ export async function validateLine(lineId) {
   await sapSheet(lineId);
 }
 
-function copyRow(label, value, display = value) {
-  const btn = h('button', { type: 'button', class: 'btn btn-small copy-btn', text: 'Copier', disabled: !value });
-  btn.addEventListener('click', () => copyText(value, btn));
-  return h('div', { class: 'copy-row' },
-    h('span', { class: 'copy-label', text: label }),
-    h('span', { class: 'copy-value', text: display || '—' }),
-    btn);
-}
-
 export async function sapSheet(lineId) {
   const line = findLine(lineId);
   if (!line) return;
@@ -183,14 +190,14 @@ export async function sapSheet(lineId) {
     title: 'Prêt pour SAP',
     body: h('div', {},
       h('p', { class: 'muted' }, `${line.collaborateur} — ${line.fournisseur} — ${monthLabel(line.mois)}`),
-      h('div', { class: 'copy-list' },
-        copyRow('N° de commande', line.commande),
-        copyRow('Poste', line.poste),
-        copyRow('Montant', formatForSap(montant), `${formatEuro(montant)}  (copié : ${formatForSap(montant)})`)),
-      tpl ? h('p', {}, h('a', { href: M.fillTemplate(tpl, line), target: '_blank', rel: 'noopener noreferrer', class: 'btn btn-small' }, 'Ouvrir la commande dans SAP ↗')) : null,
+      h('div', { class: 'sap-fields' },
+        field('N° de commande', copyField(line.commande, { label: 'Copier le n° de commande' })),
+        field('Poste', copyField(line.poste, { label: 'Copier le poste' })),
+        field('Montant HT', copyField(formatForSap(montant), { label: 'Copier le montant' }), `${formatEuro(montant)} — copié au format SAP`)),
+      tpl ? h('p', {}, h('a', { href: M.fillTemplate(tpl, line), target: '_blank', rel: 'noopener noreferrer', class: 'btn btn-sm' }, 'Ouvrir la commande dans SAP')) : null,
       editable
-        ? h('div', { class: 'form-grid' }, field('N° de BR', withCopy(br)), field('Date du BR', date))
-        : line.numeroBR ? h('p', {}, 'BR ', copyable(line.numeroBR, { title: 'Copier le n° de BR' }), ` du ${formatDate(line.dateBR)}`) : null),
+        ? h('div', { class: 'form-grid' }, field('N° de BR', withCopy(br, { label: 'Copier le n° de BR' })), field('Date du BR', date))
+        : line.numeroBR ? h('div', { class: 'form-grid' }, field('N° de BR', copyField(line.numeroBR, { label: 'Copier le n° de BR' })), field('Date du BR', copyField(formatDate(line.dateBR), { mono: false }))) : null),
     buttons: editable
       ? [
         { label: 'Plus tard', value: null },
@@ -238,7 +245,7 @@ function lineForm(line) {
     fournisseur: h('input', { type: 'text', value: line.fournisseur, attrs: { list: 'fournisseurs-list' } }),
     commande: h('input', { type: 'text', value: line.commande }),
     poste: h('input', { type: 'text', value: line.poste }),
-    montantAttendu: h('input', { type: 'text', inputMode: 'decimal', value: line.montantAttendu === null ? '' : String(line.montantAttendu).replace('.', ',') }),
+    montantAttendu: h('input', { type: 'text', inputMode: 'decimal', value: line.montantAttendu === null ? '' : formatNumber(line.montantAttendu) }),
     commentaire: h('textarea', { rows: 3, value: line.commentaire }),
   };
   const list = h('datalist', { id: 'fournisseurs-list' },
@@ -247,7 +254,7 @@ function lineForm(line) {
     list,
     field('Collaborateur *', f.collaborateur),
     field('Fournisseur *', f.fournisseur),
-    field('N° de commande *', withCopy(f.commande)),
+    field('N° de commande *', withCopy(f.commande, { label: 'Copier le n° de commande' })),
     field('Poste', f.poste),
     field('Montant attendu (€) *', f.montantAttendu),
     h('div', { class: 'span-2' }, field('Commentaire', f.commentaire)));
@@ -275,8 +282,8 @@ function duplicateOf(fields, mois, exceptId) {
 
 export async function addLine() {
   try { assertWritable(); } catch (e) { return toast(e.message, 'error'); }
-  const form = lineForm(M.createLine({}, { mois: state.mois }));
-  const mois = h('input', { type: 'month', value: state.mois, required: true });
+  const form = lineForm(M.createLine({}, { mois: currentMonth() }));
+  const mois = h('input', { type: 'month', value: currentMonth(), required: true, class: 'control' });
   const created = await modal({
     title: 'Ajouter une ligne',
     body: h('div', {}, field('Mois', mois), form.node),
@@ -312,15 +319,15 @@ export async function lineDetail(lineId) {
 
   // Actions : ferment la fiche puis lancent l'action.
   let next = null;
-  const act = (label, fn, variant = '') => h('button', { type: 'button', class: `btn btn-small ${variant ? 'btn-' + variant : ''}`, text: label,
+  const act = (label, fn, variant = '') => h('button', { type: 'button', class: `btn btn-sm ${variant ? 'btn-' + variant : ''}`, text: label,
     onclick: () => { next = fn; dlgClose(); } });
   const actions = [];
-  if (line.fichierPV) actions.push(h('button', { type: 'button', class: 'btn btn-small', text: 'Ouvrir le PV', onclick: () => openPV(line.id) }));
+  if (line.fichierPV) actions.push(h('button', { type: 'button', class: 'btn btn-sm', onclick: () => openPV(line.id) }, icon('file'), 'Ouvrir le PV'));
   if (!ro) {
     if ([STATUTS.ATTENDU, STATUTS.PV_RECU, STATUTS.LITIGE].includes(line.statut)) actions.push(act(line.fichierPV ? 'Remplacer le PV…' : 'Déposer le PV…', () => depositPV(line.id)));
     if (line.statut === STATUTS.PV_RECU) actions.push(act('Valider', () => validateLine(line.id), 'primary'));
     if (line.statut === STATUTS.VALIDE) actions.push(act('Prêt pour SAP / saisir le BR', () => sapSheet(line.id), 'primary'));
-    actions.push(line.statut === STATUTS.LITIGE ? act('Lever le litige', () => litige(line.id)) : act('Signaler un litige', () => litige(line.id), 'warn'));
+    actions.push(line.statut === STATUTS.LITIGE ? act('Lever le litige', () => litige(line.id)) : act('Signaler un litige', () => litige(line.id)));
     if (M.previousStatus(line)) {
       actions.push(act(`Revenir à « ${STATUT_LABELS[M.previousStatus(line)]} »`, async () => {
         if (await confirmDialog(line.statut === STATUTS.BR_CREE ? 'Le n° et la date de BR seront effacés. Continuer ?' : 'Revenir à l\'étape précédente ?')) {
@@ -330,7 +337,7 @@ export async function lineDetail(lineId) {
     }
     actions.push(act('Supprimer la ligne', () => deleteLine(line.id), 'danger-ghost'));
   } else if (line.statut === STATUTS.VALIDE || line.statut === STATUTS.BR_CREE) {
-    actions.push(h('button', { type: 'button', class: 'btn btn-small', text: 'Fiche SAP', onclick: () => sapSheet(line.id) }));
+    actions.push(h('button', { type: 'button', class: 'btn btn-sm', text: 'Fiche SAP', onclick: () => sapSheet(line.id) }));
   }
 
   const history = h('ol', { class: 'history' },
@@ -339,16 +346,19 @@ export async function lineDetail(lineId) {
 
   let dlgClose = () => {};
   const body = h('div', { class: 'detail' },
+    alerteBox(line),
     h('div', { class: 'detail-head' }, statusBadge(line.statut), ' ', ecartView(line),
       line.fichierPV ? h('code', { class: 'muted small', text: line.fichierPV }) : h('span', { class: 'muted small', text: 'Aucun PV déposé' })),
     h('div', { class: 'detail-actions' }, actions),
     h('h3', { text: 'Informations' }),
     form.node,
-    h('h3', { text: 'PV et BR' }),
-    h('div', { class: 'form-grid' },
-      h('div', { class: 'span-2' }, field('Montant du PV (€)', pvAmount.wrap, canEditPV ? '' : 'Modifiable quand la ligne est « PV reçu » ou « Litige ».')),
-      field('N° de BR', withCopy(brNum)),
-      field('Date du BR', brDate)),
+    // PV et BR : seulement les champs utiles au statut de la ligne.
+    line.fichierPV || line.numeroBR ? h('h3', { text: line.numeroBR ? 'PV et BR' : 'PV' }) : null,
+    line.fichierPV ? h('div', {}, field('Montant du PV (€)', canEditPV ? pvAmount.wrap : h('div', { class: 'amount-row' }, pvAmount.input, ecartView(line)),
+      canEditPV ? '' : 'Modifiable quand la ligne est « PV reçu » ou « Litige ».')) : null,
+    line.statut === STATUTS.BR_CREE ? h('div', { class: 'form-grid' },
+      field('N° de BR', withCopy(brNum, { label: 'Copier le n° de BR' })),
+      field('Date du BR', brDate)) : null,
     importDetails(line),
     h('h3', { text: 'Historique' }),
     history);

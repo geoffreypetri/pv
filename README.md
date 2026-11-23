@@ -68,12 +68,12 @@ Statuts d'une ligne (un collaborateur × un mois) :
 
 | Étape | Action dans l'application |
 |---|---|
-| **1. Import** (début de mois) | **Importer Abraxio…** → choisir l'export Excel (voir ci-dessous) → vérifier la feuille et les colonnes (mémorisées pour la suite) → **Suivant** → choisir la **période** (De → A) → vérifier les sommes (cliquer sur une ligne pour voir les imputations additionnées) et les lignes déjà présentes (*Ignorer* ou *Mettre à jour*) → **Importer**. Les lignes sont créées au statut « Attendu » pour le mois du début de période, et le fichier brut est copié dans `imports/`. |
-| **2. Réception des PV** | **Glisser-déposer le PDF sur la ligne** du collaborateur (ou bouton *Déposer le PV…*). Saisir le montant figurant sur le PV : l'écart avec le montant attendu s'affiche en direct. Le PDF est copié dans `PV/AAAA-MM/` sous le nom `AAAA-MM_Fournisseur_Collaborateur.pdf`. La ligne passe à « PV reçu » ; un écart non nul apparaît en rouge. L'icône 📄 rouvre le PV. |
-| **3. Validation** | Bouton **Valider** (confirmation demandée en cas d'écart). La fiche **« Prêt pour SAP »** s'ouvre : n° de commande, poste et montant, chacun avec un bouton **Copier** (le montant est copié au format `1234,50`). |
+| **1. Import** (début de mois, ou dès qu'Abraxio change) | **Importer Abraxio** → choisir l'export Excel complet (voir ci-dessous). Au premier import, vérifier la feuille et les colonnes (elles sont ensuite mémorisées et l'étape est sautée). Le **récapitulatif** liste par onglets les lignes nouvelles, mises à jour, « BR créé » divergentes, absentes d'Abraxio, inchangées et ignorées ; cliquer sur une ligne affiche les imputations additionnées → **Appliquer**. Le fichier brut est copié dans `imports/`. |
+| **2. Réception des PV** | **Glisser-déposer le PDF sur la ligne** du collaborateur (ou bouton *Déposer le PV…*). Saisir le montant figurant sur le PV : l'écart avec le montant attendu s'affiche en direct. Le PDF est copié dans `PV/AAAA-MM/` sous le nom `AAAA-MM_Fournisseur_Collaborateur.pdf`. La ligne passe à « PV reçu » ; un écart non nul apparaît en rouge. L'icône document rouvre le PV. |
+| **3. Validation** | Bouton **Valider** (confirmation demandée en cas d'écart). La fiche **« Prêt pour SAP »** s'ouvre : n° de commande, poste et montant, à copier avec l'icône qui apparaît au survol de chaque champ (le montant est copié au format `1234,50`). |
 | **4. BR dans SAP** | Créer le BR dans SAP, puis saisir le **n° de BR** (et sa date) dans la fiche → la ligne passe à « BR créé ». |
 | **Litige** | Cliquer sur la ligne → **Signaler un litige** (motif conservé dans le commentaire et l'historique). **Lever le litige** ramène la ligne à son statut précédent. |
-| **Fin de mois** | **Exporter Excel** : classeur du mois sélectionné avec toutes les colonnes utiles (montants, écart, statut, BR, dates, chemin du PV, commentaire). |
+| **Export** | **Exporter** : classeur Excel des lignes affichées (filtres appliqués) avec toutes les colonnes utiles (mois, période, jours, montants, écart, statut, BR, dates, chemin du PV, commentaire) et une feuille « Détail » des imputations. |
 
 ### L'export Abraxio
 
@@ -91,8 +91,9 @@ une ligne = une imputation de temps d'un collaborateur sur une période (colonne
 | Jours / prix unitaire | `Quantité` / `P.U.H.T.` |
 | Libellé du détail | `Libellé budget` |
 
-À l'import d'une période, les imputations sont **additionnées par collaborateur × commande × poste** : le montant
-attendu est la somme des `Total HT`, les jours la somme des `Quantité`. Chaque imputation reste listée (libellé, jours,
+Toutes les périodes du fichier sont importées en une fois. Les imputations sont **additionnées par mois ×
+collaborateur × commande × poste** (le mois est celui de la colonne `De`) : le montant attendu est la somme des
+`Total HT`, les jours la somme des `Quantité`. Chaque imputation reste listée (libellé, jours,
 prix unitaire, montant, n° de ligne dans le fichier) dans l'écran d'import, dans la fiche de la ligne et dans la
 feuille « Détail » de l'export Excel, pour pouvoir vérifier.
 
@@ -101,18 +102,41 @@ Sont ignorées (et décomptées dans l'écran d'import) : les lignes **sans n° 
 
 Un fichier plus simple (une ligne par collaborateur, sans colonnes De/A) reste accepté : le mois est alors demandé.
 
-Le **tableau de bord** affiche, pour le mois choisi (sélecteur ◀ ▶ en haut) : les compteurs par statut (cliquables pour
-filtrer), l'avancement des BR, la file **« À faire »** (PV manquants / à valider / BR à créer / litiges), la recherche
-(collaborateur, commande, BR, commentaire) et les filtres par fournisseur et statut.
+#### Abraxio fait foi
+
+Chaque import **synchronise** l'application avec Abraxio :
+
+- **ligne absente de l'application** → créée au statut « Attendu » ;
+- **ligne existante** (même mois, collaborateur, commande et poste) → les données d'Abraxio **remplacent** celles de
+  l'application (collaborateur, fournisseur, poste, prestation, montant attendu, jours, période, détail). Le statut, le
+  PV déposé, le montant du PV, le n° de BR et le commentaire ne sont pas touchés. Une ligne « Validé » dont l'écart
+  devient non nul **repasse à « PV reçu »** pour être revalidée ;
+- **ligne « BR créé »** (état final) → **jamais modifiée**. Si Abraxio indique d'autres valeurs, la ligne reçoit une
+  alerte « divergence » qui détaille les différences ;
+- **ligne importée précédemment mais absente du nouvel export** (pour un mois couvert par l'export) → conservée et
+  marquée **« Absente d'Abraxio »** : à vous de la supprimer si besoin. Les lignes créées à la main ne sont jamais
+  concernées.
+
+Les lignes en alerte portent une icône ⚠ dans la colonne Statut ; le filtre **Alertes Abraxio** les regroupe.
+Les alertes disparaissent d'elles-mêmes quand un import ultérieur redevient cohérent.
+
+### Le tableau
+
+Toutes les lignes sont dans **un seul tableau**, comme dans Excel, avec une colonne Mois. Filtres combinables :
+**recherche** (collaborateur, commande, BR, commentaire), **Année** (année en cours à l'ouverture), **Mois**,
+**Fournisseur** et **Statut** (plusieurs valeurs possibles), **Alertes Abraxio**. Un clic sur un en-tête de colonne trie
+le tableau (croissant, décroissant, puis tri par défaut : mois le plus récent d'abord, lignes à traiter en premier).
+Les compteurs par statut, l'avancement des BR et la file **« À faire »** (PV manquants / à valider / BR à créer /
+litiges) portent sur les lignes filtrées ; un clic sur un compteur filtre sur ce statut.
 
 Cliquer sur une ligne ouvre sa **fiche détaillée** : modification des informations, du montant PV, du BR, commentaire,
 historique daté des changements de statut, retour à l'étape précédente en cas d'erreur, suppression.
-**Ajouter une ligne** permet de créer une ligne manuellement (prestation absente de l'export).
+**Nouvelle ligne** permet de créer une ligne manuellement (prestation absente de l'export).
 
 Chaque modification est **enregistrée automatiquement** dans `data.json` (état affiché dans le pied de page).
 
-Le **n° de commande** et le **n° de BR** se copient d'un simple clic, dans le tableau comme dans les fiches
-(un repère « Copié ✓ » confirme la copie) ; les champs de saisie correspondants ont un bouton **Copier**.
+**Copier** : au survol du n° de commande, du n° de BR (tableau, fiches) ou des champs de la fiche « Prêt pour SAP »,
+une icône de copie apparaît à l'intérieur du champ ; un clic copie la valeur (une coche confirme la copie).
 
 ## 4. Sauvegarde des données
 
@@ -132,7 +156,8 @@ Le **n° de commande** et le **n° de BR** se copient d'un simple clic, dans le 
 1. **Accès au dossier** : demander l'accès (partage OneDrive/SharePoint) au dossier `Suivi-PV`, ou en recevoir une copie.
 2. **Ouvrir l'application** dans Edge à l'adresse habituelle, l'installer si besoin, puis *Choisir le dossier de travail*
    en désignant ce dossier `Suivi-PV`. Tout l'historique (lignes, PV, imports) est retrouvé.
-3. **Chaque mois** : suivre le [déroulé mensuel](#3-déroulé-mensuel). La file « À faire » indique ce qui reste.
+3. **Chaque mois** : importer l'export Abraxio complet (il fait foi), puis suivre le [déroulé mensuel](#3-déroulé-mensuel).
+   La file « À faire » indique ce qui reste ; le filtre « Alertes Abraxio » montre les lignes à examiner.
 4. **Export Abraxio** : la correspondance des colonnes est mémorisée ; si le format de l'export change, l'écran de
    correspondance le signale (colonnes non trouvées) — il suffit de refaire le choix. *Paramètres* montre la
    correspondance actuelle.
@@ -245,7 +270,7 @@ exemple-abraxio.xlsx    export fictif pour les essais
 
 ```jsonc
 {
-  "schemaVersion": 2,                         // version du format (voir js/schema.js)
+  "schemaVersion": 3,                         // version du format (voir js/schema.js)
   "app": { "creeAvec": "0.1.0", "creeLe": "…", "enregistreAvec": "0.1.0", "enregistreLe": "…" },
   "config": {
     "importMapping": {                        // champ de l'app ← en-tête de colonne du fichier importé
@@ -258,10 +283,10 @@ exemple-abraxio.xlsx    export fictif pour les essais
     "sapUrlTemplates": { "commande": "", "br": "" }   // modèles d'URL facultatifs : {commande} {poste} {br}
   },
   "imports": [
-    { "id": "…", "date": "2026-11-03T09:12:00.000Z", "mois": "2026-10", "fichierOrigine": "export.xlsx",
-      "periode": { "debut": "2026-10-01", "fin": "2026-10-31" }, "feuille": "Données Consommé",
-      "copie": "imports/2026-10_20261103-091200_export.xlsx",
-      "lignesCreees": 48, "lignesMisesAJour": 0, "lignesIgnorees": 2 }
+    { "id": "…", "date": "2026-11-03T09:12:00.000Z", "fichierOrigine": "export.xlsx", "feuille": "Données Consommé",
+      "copie": "imports/20261103-091200_export.xlsx", "mois": ["2026-01", "…", "2026-10"],
+      "lignes": 398, "lignesCreees": 42, "lignesMisesAJour": 3, "lignesInchangees": 353,
+      "divergencesBR": 0, "absentes": 0, "lignesFichierIgnorees": 182 }
   ],
   "lignes": [
     {
@@ -292,7 +317,8 @@ exemple-abraxio.xlsx    export fictif pour les essais
         { "date": "2026-11-15T10:02:00.000Z", "statut": "valide" },
         { "date": "2026-11-22T14:30:00.000Z", "statut": "br_cree", "detail": "BR 5000123456" }
       ],
-      "importId": "…",                        // import d'origine
+      "importId": "…",                        // dernier import ayant confirmé la ligne (null si créée à la main)
+      "alerteAbraxio": null,                  // ou { "type": "absente" | "divergence", "date", "changes": [...] }
       "source": { "Type facture": "Temps" },  // colonnes non mappées de la 1re imputation (pour les évolutions)
       "creeLe": "…", "modifieLe": "…"
     }

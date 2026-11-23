@@ -47,6 +47,13 @@ test('schéma 1 → 2 : détail d\'import ajouté, lignes existantes conservées
   assert.equal(r.data.config.importMapping.collaborateur, 'Nom');
 });
 
+test('schéma 2 → 3 : alerte Abraxio ajoutée', () => {
+  const r = migrate({ schemaVersion: 2, config: {}, lignes: [{ id: 'a', mois: '2026-10', statut: 'valide' }] }, { target: 3 });
+  assert.equal(r.data.schemaVersion, 3);
+  assert.equal(r.data.lignes[0].alerteAbraxio, null);
+  assert.equal(r.data.lignes[0].statut, 'valide');
+});
+
 test('la migration ne modifie pas l\'objet d\'origine', () => {
   const v0 = { lignes: [{ id: 'a', mois: '2026-10' }] };
   const copy = structuredClone(v0);

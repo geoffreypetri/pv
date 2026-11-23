@@ -126,10 +126,6 @@ export function revertStatus(line) {
 
 /* ---------- Tableau de bord ---------- */
 
-export function linesForMonth(lines, mois) {
-  return lines.filter((l) => l.mois === mois);
-}
-
 export function countByStatus(lines) {
   const counts = { attendu: 0, pv_recu: 0, valide: 0, br_cree: 0, litige: 0, total: lines.length };
   for (const l of lines) counts[l.statut] = (counts[l.statut] || 0) + 1;
@@ -153,11 +149,19 @@ export const TODO_GROUPS = Object.freeze([
   { key: 'litiges', label: 'Litiges', statut: STATUTS.LITIGE },
 ]);
 
-export function filterLines(lines, { q = '', fournisseur = '', statut = '' } = {}) {
+/**
+ * Filtre « à plat » : recherche, année, mois (plusieurs), fournisseurs, statuts, alertes Abraxio.
+ * Un filtre vide (chaîne vide, tableau vide) ne filtre pas.
+ */
+export function filterLines(lines, { q = '', annee = '', mois = [], fournisseurs = [], statuts = [], alertes = false } = {}) {
   const needle = normalizeKey(q);
+  const moisSet = new Set(mois), fSet = new Set(fournisseurs), sSet = new Set(statuts);
   return lines.filter((l) => {
-    if (fournisseur && l.fournisseur !== fournisseur) return false;
-    if (statut && l.statut !== statut) return false;
+    if (annee && !l.mois.startsWith(`${annee}-`)) return false;
+    if (moisSet.size && !moisSet.has(l.mois)) return false;
+    if (fSet.size && !fSet.has(l.fournisseur)) return false;
+    if (sSet.size && !sSet.has(l.statut)) return false;
+    if (alertes && !l.alerteAbraxio) return false;
     if (needle) {
       const hay = normalizeKey([l.collaborateur, l.fournisseur, l.commande, l.poste, l.prestation, l.numeroBR, l.commentaire].join(' '));
       if (!hay.includes(needle)) return false;
@@ -168,22 +172,34 @@ export function filterLines(lines, { q = '', fournisseur = '', statut = '' } = {
 
 const STATUT_ORDER = { litige: 0, pv_recu: 1, valide: 2, attendu: 3, br_cree: 4 };
 
-export function sortLines(lines) {
-  return [...lines].sort((a, b) =>
-    (STATUT_ORDER[a.statut] - STATUT_ORDER[b.statut]) ||
-    a.fournisseur.localeCompare(b.fournisseur, 'fr') ||
-    a.collaborateur.localeCompare(b.collaborateur, 'fr'));
+const SORTERS = {
+  mois: (a, b) => a.mois.localeCompare(b.mois),
+  collaborateur: (a, b) => a.collaborateur.localeCompare(b.collaborateur, 'fr'),
+  fournisseur: (a, b) => a.fournisseur.localeCompare(b.fournisseur, 'fr'),
+  commande: (a, b) => a.commande.localeCompare(b.commande, 'fr', { numeric: true }) || a.poste.localeCompare(b.poste, 'fr', { numeric: true }),
+  montantAttendu: (a, b) => (a.montantAttendu ?? -Infinity) - (b.montantAttendu ?? -Infinity),
+  montantPV: (a, b) => (a.montantPV ?? -Infinity) - (b.montantPV ?? -Infinity),
+  ecart: (a, b) => Math.abs(computeEcart(a) ?? -1) - Math.abs(computeEcart(b) ?? -1),
+  statut: (a, b) => STATUT_ORDER[a.statut] - STATUT_ORDER[b.statut],
+};
+export const SORT_KEYS = Object.keys(SORTERS);
+
+/**
+ * Tri : par la colonne demandée, puis ordre par défaut
+ * (mois le plus récent, lignes à traiter d'abord, fournisseur, collaborateur).
+ */
+export function sortLines(lines, { key = null, dir = 'asc' } = {}) {
+  const sign = dir === 'desc' ? -1 : 1;
+  const primary = key && SORTERS[key] ? (a, b) => sign * SORTERS[key](a, b) : () => 0;
+  return [...lines].sort((a, b) => primary(a, b)
+    || b.mois.localeCompare(a.mois)
+    || SORTERS.statut(a, b)
+    || SORTERS.fournisseur(a, b)
+    || SORTERS.collaborateur(a, b));
 }
 
-/** Mois affiché au démarrage : le mois courant s'il a des lignes, sinon le plus récent mois renseigné. */
-export function defaultMonth(lines, current) {
-  if (lines.some((l) => l.mois === current)) return current;
-  const past = monthsInData(lines).filter((m) => m <= current);
-  return past[0] || monthsInData(lines)[0] || current;
-}
-
-export function monthsInData(lines) {
-  return [...new Set(lines.map((l) => l.mois))].sort().reverse();
+export function yearsInData(lines) {
+  return [...new Set(lines.map((l) => l.mois.slice(0, 4)))].sort().reverse();
 }
 
 /* ---------- PV : nom de fichier ---------- */
@@ -323,46 +339,36 @@ export function summarizeInvalid(invalid) {
   return [...m.entries()].map(([motif, count]) => ({ motif, count })).sort((a, b) => b.count - a.count);
 }
 
-/** Périodes (De → A) présentes dans les lignes valides, de la plus récente à la plus ancienne. */
-export function listPeriods(validRows) {
-  const m = new Map();
-  for (const r of validRows) {
-    const { debut, fin } = r.fields;
-    if (!debut) continue;
-    const key = `${debut}|${fin}`;
-    const e = m.get(key) || { debut, fin, mois: debut.slice(0, 7), lignes: 0, montant: 0 };
-    e.lignes++;
-    e.montant = round2(e.montant + r.fields.montant);
-    m.set(key, e);
-  }
-  return [...m.values()].sort((a, b) => b.debut.localeCompare(a.debut) || b.fin.localeCompare(a.fin));
-}
-
 /** Clé de regroupement / doublon : collaborateur + commande + poste (+ mois). */
 const groupKey = (f) => `${normalizeKey(f.collaborateur)}|${normalizeKey(f.commande)}|${normalizeKey(f.poste)}`;
 
 /**
- * Additionne les imputations d'une période par collaborateur × commande × poste.
- * @param period { debut, fin } ou null (toutes les lignes, fichier sans dates)
- * @returns Array<{ fields: { collaborateur, fournisseur, commande, poste, prestation, montantAttendu, jours, periode }, details, source, rowNumbers }>
+ * Additionne les imputations par mois × collaborateur × commande × poste.
+ * Le mois est celui du début de période (colonne « De ») ; à défaut, `mois` (fichier sans période).
+ * @returns Array<{ fields: { mois, collaborateur, fournisseur, commande, poste, prestation, montantAttendu, jours, periode }, details, source, rowNumbers }>
  */
-export function aggregate(validRows, period = null) {
+export function aggregate(validRows, { mois = null } = {}) {
   const groups = new Map();
   for (const r of validRows) {
     const f = r.fields;
-    if (period && (f.debut !== period.debut || f.fin !== period.fin)) continue;
-    const key = groupKey(f);
+    const m = f.debut ? f.debut.slice(0, 7) : mois;
+    if (!m) continue;
+    const key = `${m}|${groupKey(f)}`;
     let g = groups.get(key);
     if (!g) {
       g = {
         fields: {
-          collaborateur: f.collaborateur, fournisseur: f.fournisseur, commande: f.commande, poste: f.poste,
-          prestation: f.prestation, montantAttendu: 0, jours: null,
-          periode: period ? { debut: period.debut, fin: period.fin } : (f.debut ? { debut: f.debut, fin: f.fin } : null),
+          mois: m, collaborateur: f.collaborateur, fournisseur: f.fournisseur, commande: f.commande, poste: f.poste,
+          prestation: f.prestation, montantAttendu: 0, jours: null, periode: f.debut ? { debut: f.debut, fin: f.fin } : null,
         },
         details: [], source: r.source, rowNumbers: [], fournisseurs: new Set(),
       };
       groups.set(key, g);
+    }
+    const p = g.fields.periode;
+    if (p && f.debut) { // période englobante si plusieurs périodes tombent dans le même mois
+      if (f.debut < p.debut) p.debut = f.debut;
+      if (f.fin > p.fin) p.fin = f.fin;
     }
     g.fournisseurs.add(f.fournisseur);
     g.fields.montantAttendu = round2(g.fields.montantAttendu + f.montant);
@@ -374,46 +380,126 @@ export function aggregate(validRows, period = null) {
   return [...groups.values()].map(({ fournisseurs, ...g }) => {
     g.fields.fournisseur = [...fournisseurs].join(' / ');
     return g;
-  }).sort((a, b) => a.fields.fournisseur.localeCompare(b.fields.fournisseur, 'fr') || a.fields.collaborateur.localeCompare(b.fields.collaborateur, 'fr'));
+  }).sort((a, b) => b.fields.mois.localeCompare(a.fields.mois)
+    || a.fields.fournisseur.localeCompare(b.fields.fournisseur, 'fr')
+    || a.fields.collaborateur.localeCompare(b.fields.collaborateur, 'fr'));
 }
 
-/** Clé de doublon : collaborateur + commande + poste + mois. */
+/** Clé d'identification d'une ligne : collaborateur + commande + poste + mois. */
 export function duplicateKey(f, mois) {
   return `${mois}|${groupKey(f)}`;
 }
 
-/**
- * Compare les lignes à importer (agrégées) aux lignes existantes du mois.
- * @returns {{ nouvelles, doublons: Array<{incoming, existing, changes}> }}
- */
-export function planImport(existingLines, items, mois) {
-  const index = new Map();
-  for (const l of existingLines) if (l.mois === mois) index.set(duplicateKey(l, mois), l);
-  const seen = new Set();
-  const nouvelles = [], doublons = [];
-  for (const r of items) {
-    const key = duplicateKey(r.fields, mois);
-    const existing = index.get(key);
-    if (existing) {
-      doublons.push({ incoming: r, existing, changes: diffImportFields(existing, r.fields) });
-    } else if (seen.has(key)) {
-      doublons.push({ incoming: r, existing: null, changes: [], inFile: true });
-    } else {
-      seen.add(key);
-      nouvelles.push(r);
-    }
-  }
-  return { nouvelles, doublons };
-}
+/* ---------- Synchronisation avec Abraxio (source de vérité) ---------- */
 
-function diffImportFields(existing, fields) {
+/** Champs repris d'Abraxio, dans l'ordre d'affichage des différences. */
+export const SYNC_FIELDS = Object.freeze([
+  { key: 'collaborateur', label: 'Collaborateur' },
+  { key: 'fournisseur', label: 'Fournisseur' },
+  { key: 'commande', label: 'N° de commande' },
+  { key: 'poste', label: 'Poste' },
+  { key: 'prestation', label: 'Prestation' },
+  { key: 'montantAttendu', label: 'Montant attendu', type: 'euro' },
+  { key: 'jours', label: 'Jours', type: 'jours' },
+  { key: 'periode', label: 'Période', type: 'periode' },
+  { key: 'details', label: 'Détail des imputations', type: 'details' },
+]);
+
+const sameDetails = (a = [], b = []) => a.length === b.length && a.every((d, i) =>
+  (d.libelle || '') === (b[i].libelle || '') && round2(d.montant || 0) === round2(b[i].montant || 0)
+  && (d.quantite ?? null) === (b[i].quantite ?? null) && (d.prixUnitaire ?? null) === (b[i].prixUnitaire ?? null));
+
+/** Différences entre une ligne existante et un élément importé : [{ champ, label, avant, apres }]. */
+export function diffSync(line, item) {
   const changes = [];
-  for (const k of ['fournisseur', 'montantAttendu', 'jours']) {
-    const a = existing[k] ?? '', b = fields[k] ?? '';
-    const differs = k === 'fournisseur' ? String(a) !== String(b) : round2(a || 0) !== round2(b || 0);
-    if (differs) changes.push({ champ: k, avant: existing[k], apres: fields[k] });
+  for (const f of SYNC_FIELDS) {
+    const a = f.key === 'details' ? line.details : line[f.key];
+    const b = f.key === 'details' ? item.details : item.fields[f.key];
+    let differs;
+    if (f.type === 'euro' || f.type === 'jours') differs = (a ?? null) === null ? (b ?? null) !== null : (b ?? null) === null || round2(a) !== round2(b);
+    else if (f.type === 'periode') differs = (a?.debut || '') !== (b?.debut || '') || (a?.fin || '') !== (b?.fin || '');
+    else if (f.type === 'details') differs = !sameDetails(a, b);
+    else differs = String(a ?? '') !== String(b ?? '');
+    if (differs) changes.push({ champ: f.key, label: f.label, avant: a ?? null, apres: b ?? null });
   }
   return changes;
+}
+
+/**
+ * Prépare la synchronisation : Abraxio fait foi, sauf pour les lignes « BR créé » (état final).
+ * @param existing lignes de l'application
+ * @param items éléments agrégés de l'import
+ * @param tolerance écart toléré (pour savoir si une ligne « Validé » doit être revalidée)
+ * @returns {{
+ *   creations: item[],
+ *   modifications: Array<{ line, item, changes, revalidation }>,
+ *   identiques: Array<{ line, item }>,
+ *   protegees: Array<{ line, item, changes }>,   // BR créé et divergente : signalée, non modifiée
+ *   absentes: line[],                            // issues d'un import, mois couvert, plus dans Abraxio
+ *   reapparues: line[],                          // signalées absentes, de nouveau présentes
+ *   moisCouverts: string[],
+ * }}
+ */
+export function planSync(existing, items, { tolerance = 0 } = {}) {
+  const index = new Map(existing.map((l) => [duplicateKey(l, l.mois), l]));
+  const moisCouverts = [...new Set(items.map((i) => i.fields.mois))].sort();
+  const plan = { creations: [], modifications: [], identiques: [], protegees: [], absentes: [], reapparues: [], moisCouverts };
+  const matched = new Set();
+  for (const item of items) {
+    const line = index.get(duplicateKey(item.fields, item.fields.mois));
+    if (!line) { plan.creations.push(item); continue; }
+    matched.add(line);
+    if (line.alerteAbraxio?.type === 'absente') plan.reapparues.push(line);
+    const changes = diffSync(line, item);
+    if (line.statut === STATUTS.BR_CREE) {
+      if (changes.length) plan.protegees.push({ line, item, changes });
+      else plan.identiques.push({ line, item });
+    } else if (changes.length) {
+      const nouvelEcart = line.montantPV === null || line.montantPV === undefined ? 0
+        : round2(line.montantPV - item.fields.montantAttendu);
+      const revalidation = line.statut === STATUTS.VALIDE && Math.abs(nouvelEcart) > tolerance + 1e-9;
+      plan.modifications.push({ line, item, changes, revalidation });
+    } else {
+      plan.identiques.push({ line, item });
+    }
+  }
+  const couverts = new Set(moisCouverts);
+  for (const l of existing) {
+    if (!matched.has(l) && l.importId && couverts.has(l.mois)) plan.absentes.push(l);
+  }
+  return plan;
+}
+
+const changeSummary = (changes) => changes.map((c) => c.label).join(', ');
+
+/** Applique un plan de synchronisation à `data` (mutation). */
+export function applySync(data, plan, importId) {
+  const now = nowIso();
+  for (const item of plan.creations) data.lignes.push(lineFromImport(item, item.fields.mois, importId));
+  for (const { line, item, changes, revalidation } of plan.modifications) {
+    for (const f of SYNC_FIELDS) line[f.key] = f.key === 'details' ? item.details : item.fields[f.key] ?? (f.key === 'jours' || f.key === 'periode' ? null : '');
+    line.importId = importId;
+    line.alerteAbraxio = null;
+    line.historique.push({ date: now, statut: line.statut, detail: `Mis à jour depuis Abraxio : ${changeSummary(changes)}` });
+    if (revalidation) pushStatus(line, STATUTS.PV_RECU, 'Montant attendu modifié par Abraxio : à revalider');
+    touch(line);
+  }
+  for (const { line } of plan.identiques) {
+    if (line.alerteAbraxio) { line.alerteAbraxio = null; touch(line); }
+    line.importId = importId;
+  }
+  for (const { line, changes } of plan.protegees) {
+    line.alerteAbraxio = { type: 'divergence', date: now, importId,
+      changes: changes.map(({ champ, label, avant, apres }) => ({ champ, label, avant: champ === 'details' ? null : avant, apres: champ === 'details' ? null : apres })) };
+    touch(line);
+  }
+  for (const line of plan.absentes) {
+    if (line.alerteAbraxio?.type !== 'absente') {
+      line.alerteAbraxio = { type: 'absente', date: now, importId };
+      line.historique.push({ date: now, statut: line.statut, detail: 'Absente du dernier export Abraxio' });
+      touch(line);
+    }
+  }
 }
 
 /** Crée une ligne « Attendu » à partir d'un élément agrégé. */
@@ -426,20 +512,6 @@ export function lineFromImport(item, mois, importId) {
     details: item.details || [],
   });
   return l;
-}
-
-/** Met à jour une ligne existante depuis l'import (sans toucher au statut, au PV ni au BR). */
-export function updateFromImport(line, fields, importId, details = null) {
-  line.fournisseur = fields.fournisseur || line.fournisseur;
-  if (fields.poste !== undefined) line.poste = fields.poste || line.poste;
-  line.montantAttendu = fields.montantAttendu;
-  if (fields.jours !== undefined) line.jours = fields.jours;
-  if (fields.periode) line.periode = fields.periode;
-  if (fields.prestation) line.prestation = fields.prestation;
-  if (details) line.details = details;
-  line.importId = importId;
-  line.historique.push({ date: nowIso(), statut: line.statut, detail: 'Mise à jour par import' });
-  touch(line);
 }
 
 /* ---------- Export ---------- */

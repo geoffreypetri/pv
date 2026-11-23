@@ -6,13 +6,18 @@ import { currentMonth, fileStamp } from './format.js';
 
 export const APP_VERSION = globalThis.APP_VERSION || { version: '0.0.0', date: '' };
 
+export function defaultFilters() {
+  return { q: '', annee: currentMonth().slice(0, 4), mois: [], fournisseurs: [], statuts: [], alertes: false };
+}
+
 export const state = {
   dir: null,            // FileSystemDirectoryHandle du dossier Suivi-PV
   data: null,           // contenu de data.json
   readOnly: false,
   readOnlyReason: '',
-  mois: currentMonth(),
-  filters: { q: '', fournisseur: '', statut: '' },
+  // Vue « à plat » : filtres combinables (le mois est un filtre comme les autres).
+  filters: defaultFilters(),
+  sort: { key: null, dir: 'asc' },
   save: { status: 'idle', at: null, error: null }, // idle | saving | saved | error
 };
 

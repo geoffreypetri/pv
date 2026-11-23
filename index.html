@@ -21,17 +21,10 @@
   <header class="topbar">
     <div class="brand"><img src="icons/icon.svg" alt="" width="24" height="24"><span>Suivi PV</span></div>
     <div id="toolbar" class="toolbar" hidden>
-      <div class="month-nav" role="group" aria-label="Mois">
-        <button id="monthPrev" type="button" class="icon-btn" title="Mois précédent" aria-label="Mois précédent">‹</button>
-        <select id="monthSelect" aria-label="Mois affiché"></select>
-        <button id="monthNext" type="button" class="icon-btn" title="Mois suivant" aria-label="Mois suivant">›</button>
-      </div>
-      <div class="toolbar-actions">
-        <button id="btnImport" type="button" class="btn btn-primary">Importer Abraxio…</button>
-        <button id="btnAddLine" type="button" class="btn">Ajouter une ligne</button>
-        <button id="btnExport" type="button" class="btn">Exporter Excel</button>
-        <button id="btnSettings" type="button" class="btn btn-ghost">Paramètres</button>
-      </div>
+      <button id="btnImport" type="button" class="btn btn-primary" data-icon="upload">Importer Abraxio</button>
+      <button id="btnExport" type="button" class="btn" data-icon="download">Exporter</button>
+      <button id="btnAddLine" type="button" class="btn" data-icon="plus">Nouvelle ligne</button>
+      <button id="btnSettings" type="button" class="btn btn-ghost" data-icon="settings">Paramètres</button>
     </div>
   </header>
 
@@ -42,28 +35,28 @@
     <section id="welcome" class="welcome" hidden></section>
 
     <section id="dashboard" hidden>
-      <div id="counters" class="counters"></div>
-      <div id="todo" class="todo"></div>
-      <div class="filters">
-        <input id="search" type="search" placeholder="Rechercher (collaborateur, commande, BR…)" aria-label="Rechercher">
-        <select id="filterFournisseur" aria-label="Fournisseur"></select>
-        <select id="filterStatut" aria-label="Statut"></select>
-        <button id="filterReset" type="button" class="btn btn-ghost btn-small" hidden>Effacer les filtres</button>
-        <span id="resultCount" class="muted small"></span>
+      <div class="filters" id="filters">
+        <div class="search">
+          <input id="search" type="search" class="control" placeholder="Rechercher : collaborateur, commande, BR…" aria-label="Rechercher">
+        </div>
+        <select id="filterAnnee" class="control" aria-label="Année"></select>
+        <span id="filterMois"></span>
+        <span id="filterFournisseurs"></span>
+        <span id="filterStatuts"></span>
+        <label id="filterAlertesWrap" class="toggle" hidden><input id="filterAlertes" type="checkbox"><span id="filterAlertesLabel">Alertes Abraxio</span></label>
+        <button id="filterReset" type="button" class="btn btn-ghost btn-sm" hidden>Réinitialiser</button>
       </div>
+
+      <div id="summary" class="summary"></div>
+      <div id="todo" class="todo"></div>
+
       <div class="table-wrap">
         <table class="grid lines">
-          <thead>
-            <tr>
-              <th>Collaborateur</th><th>Fournisseur</th><th>Commande</th>
-              <th class="num">Attendu</th><th class="num">Montant PV</th><th class="num">Écart</th>
-              <th>Statut</th><th>Action</th>
-            </tr>
-          </thead>
+          <thead><tr id="linesHead"></tr></thead>
           <tbody id="linesBody"></tbody>
         </table>
       </div>
-      <p class="hint">Astuce : glissez-déposez le PDF d'un PV directement sur la ligne du collaborateur.</p>
+      <p class="hint"><span id="resultCount"></span> Glissez-déposez le PDF d'un PV sur la ligne du collaborateur.</p>
     </section>
   </main>
 

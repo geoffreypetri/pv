@@ -6,7 +6,7 @@
 //   2. ajouter MIGRATIONS[nouvelleVersion] = (data) => data transformé,
 //   3. ajouter un test dans tests/schema.test.js.
 
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 
 export const STATUTS = Object.freeze({
   ATTENDU: 'attendu',
@@ -97,6 +97,10 @@ export function normalizeLine(l) {
     commentaire: l.commentaire ?? '',
     historique: Array.isArray(l.historique) ? l.historique : [],
     importId: l.importId ?? null,
+    // Alerte de synchronisation : null | { type: 'absente' | 'divergence', date, importId, changes? }
+    //  - absente : la ligne n'est plus dans le dernier export Abraxio ;
+    //  - divergence : ligne « BR créé » (non modifiable) dont les données diffèrent d'Abraxio.
+    alerteAbraxio: l.alerteAbraxio ?? null,
     // Colonnes du fichier source non mappées (utile pour les évolutions : jours facturés…).
     source: l.source ?? {},
     creeLe: l.creeLe ?? null,
@@ -132,6 +136,11 @@ export const MIGRATIONS = {
       periode: l.periode ?? null,
       details: Array.isArray(l.details) ? l.details : [],
     })),
+  }),
+  // v3 : synchronisation avec Abraxio (alerte « absente » / « divergence »).
+  3: (d) => ({
+    ...d,
+    lignes: (Array.isArray(d.lignes) ? d.lignes : []).map((l) => ({ ...l, alerteAbraxio: l.alerteAbraxio ?? null })),
   }),
 };
 
