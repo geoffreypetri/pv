@@ -6,6 +6,12 @@ Notez les changements à venir sous `## [Non publié]` : `node scripts/release.m
 
 ## [Non publié]
 
+## [0.4.1] - 2026-11-23
+- Poste : tout le texte qui suit le n° de commande (ex. « 10-Prestation de … »), y compris pour les lignes déjà importées
+- Tableau groupé par mois (en-têtes repliables avec nombre de lignes, total et BR créés) à la place de la colonne Mois
+- Historique de la fiche aligné en colonnes (date, statut, détail)
+- Curseur de saisie toujours visible dans les champs
+
 ## [0.4.0] - 2026-11-23
 - L'import intègre toutes les périodes de l'export Abraxio en une fois
 - Abraxio fait foi : les données importées remplacent les données existantes, sauf sur les lignes « BR créé »

@@ -192,8 +192,8 @@ export async function sapSheet(lineId) {
       h('p', { class: 'muted' }, `${line.collaborateur} — ${line.fournisseur} — ${monthLabel(line.mois)}`),
       h('div', { class: 'sap-fields' },
         field('N° de commande', copyField(line.commande, { label: 'Copier le n° de commande' })),
-        field('Poste', copyField(line.poste, { label: 'Copier le poste' })),
-        field('Montant HT', copyField(formatForSap(montant), { label: 'Copier le montant' }), `${formatEuro(montant)} — copié au format SAP`)),
+        field('Montant HT', copyField(formatForSap(montant), { label: 'Copier le montant' }), `${formatEuro(montant)} — copié au format SAP`),
+        h('div', { class: 'span-2' }, field('Poste', copyField(line.poste, { label: 'Copier le poste', mono: false })))),
       tpl ? h('p', {}, h('a', { href: M.fillTemplate(tpl, line), target: '_blank', rel: 'noopener noreferrer', class: 'btn btn-sm' }, 'Ouvrir la commande dans SAP')) : null,
       editable
         ? h('div', { class: 'form-grid' }, field('N° de BR', withCopy(br, { label: 'Copier le n° de BR' })), field('Date du BR', date))
@@ -255,8 +255,8 @@ function lineForm(line) {
     field('Collaborateur *', f.collaborateur),
     field('Fournisseur *', f.fournisseur),
     field('N° de commande *', withCopy(f.commande, { label: 'Copier le n° de commande' })),
-    field('Poste', f.poste),
     field('Montant attendu (€) *', f.montantAttendu),
+    h('div', { class: 'span-2' }, field('Poste', f.poste)),
     h('div', { class: 'span-2' }, field('Commentaire', f.commentaire)));
   const read = () => {
     const v = {

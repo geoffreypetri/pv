@@ -85,7 +85,7 @@ une ligne = une imputation de temps d'un collaborateur sur une période (colonne
 |---|---|
 | Collaborateur | `Collaborateur` |
 | Fournisseur | `Fournisseur` |
-| N° de commande et poste | `Numéros de commande associés` (format `3000000101-10-Prestation de …` : commande, poste, libellé) |
+| N° de commande et poste | `Numéros de commande associés` (format `<commande>-<poste>`, par ex. `3000000101-10-Prestation de …` → commande `3000000101`, poste `10-Prestation de …`) |
 | Montant HT | `Total HT` |
 | Période | `De` et `A` |
 | Jours / prix unitaire | `Quantité` / `P.U.H.T.` |
@@ -122,10 +122,10 @@ Les alertes disparaissent d'elles-mêmes quand un import ultérieur redevient co
 
 ### Le tableau
 
-Toutes les lignes sont dans **un seul tableau**, comme dans Excel, avec une colonne Mois. Filtres combinables :
+Toutes les lignes sont dans **un seul tableau**, comme dans Excel, **groupées par mois** (un clic sur l'en-tête d'un mois le replie ; l'en-tête indique le nombre de lignes, le total attendu et les BR créés). Filtres combinables :
 **recherche** (collaborateur, commande, BR, commentaire), **Année** (année en cours à l'ouverture), **Mois**,
 **Fournisseur** et **Statut** (plusieurs valeurs possibles), **Alertes Abraxio**. Un clic sur un en-tête de colonne trie
-le tableau (croissant, décroissant, puis tri par défaut : mois le plus récent d'abord, lignes à traiter en premier).
+le tableau à l'intérieur de chaque mois (croissant, décroissant, puis tri par défaut : lignes à traiter en premier).
 Les compteurs par statut, l'avancement des BR et la file **« À faire »** (PV manquants / à valider / BR à créer /
 litiges) portent sur les lignes filtrées ; un clic sur un compteur filtre sur ce statut.
 

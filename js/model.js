@@ -269,13 +269,15 @@ export function guessMapping(headers, saved = {}, rows = []) {
 }
 
 /**
- * Découpe une référence de commande : « 3000000101-10-Prestation de … » → commande, poste, libellé.
+ * Découpe une référence de commande Abraxio « <n° de commande>-<poste> » :
+ * « 3000000101-10-Prestation de … » → commande « 3000000101 », poste « 10-Prestation de … »
+ * (le poste est tout le texte qui suit le n° de commande).
  * Une valeur sans ce format est renvoyée telle quelle comme n° de commande.
  */
 export function parseCommande(value) {
   const s = String(value ?? '').trim();
-  const m = s.match(/^(\d{5,})\s*[-/ ]\s*(\d{1,5})(?:\s*[-/]\s*(.*))?$/);
-  if (m) return { commande: m[1], poste: m[2], prestation: (m[3] || '').trim() };
+  const m = s.match(/^(\d{5,})\s*[-/]\s*(\S.*)$/);
+  if (m) return { commande: m[1], poste: m[2].trim(), prestation: '' };
   return { commande: s, poste: '', prestation: '' };
 }
 

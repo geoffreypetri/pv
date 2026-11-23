@@ -6,7 +6,7 @@
 //   2. ajouter MIGRATIONS[nouvelleVersion] = (data) => data transformé,
 //   3. ajouter un test dans tests/schema.test.js.
 
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4;
 
 export const STATUTS = Object.freeze({
   ATTENDU: 'attendu',
@@ -35,8 +35,8 @@ export const CYCLE = Object.freeze(['attendu', 'pv_recu', 'valide', 'br_cree']);
 export const IMPORT_FIELDS = Object.freeze([
   { key: 'collaborateur', label: 'Collaborateur', required: true },
   { key: 'fournisseur', label: 'Fournisseur', required: true },
-  { key: 'commande', label: 'N° de commande', required: true, hint: 'Format Abraxio « commande-poste-libellé » : le poste (10, 20…) est extrait automatiquement.' },
-  { key: 'poste', label: 'Poste de commande', required: false, hint: 'Facultatif : le poste est lu dans « commande-poste » quand il y figure.' },
+  { key: 'commande', label: 'N° de commande', required: true, hint: 'Format Abraxio « <commande>-<poste> » : le poste est tout le texte qui suit le n° de commande (« 10-… », « 20-… »).' },
+  { key: 'poste', label: 'Poste de commande', required: false, hint: 'Facultatif : utilisé seulement si le n° de commande ne contient pas le poste.' },
   { key: 'montantAttendu', label: 'Montant HT', required: true },
   { key: 'debut', label: 'Début de période (De)', required: false },
   { key: 'fin', label: 'Fin de période (A)', required: false },
@@ -141,6 +141,17 @@ export const MIGRATIONS = {
   3: (d) => ({
     ...d,
     lignes: (Array.isArray(d.lignes) ? d.lignes : []).map((l) => ({ ...l, alerteAbraxio: l.alerteAbraxio ?? null })),
+  }),
+  // v4 : le poste est tout le texte qui suit le n° de commande (« 10-Prestation de … »).
+  // Les lignes importées avant (poste « 10 » + libellé séparé) sont recomposées, sans alerte au prochain import.
+  4: (d) => ({
+    ...d,
+    lignes: (Array.isArray(d.lignes) ? d.lignes : []).map((l) => {
+      if (/^\d{1,5}$/.test(String(l.poste ?? '')) && l.prestation) {
+        return { ...l, poste: `${l.poste}-${l.prestation}`, prestation: '' };
+      }
+      return l;
+    }),
   }),
 };
 

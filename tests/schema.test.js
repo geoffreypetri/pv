@@ -54,6 +54,17 @@ test('schéma 2 → 3 : alerte Abraxio ajoutée', () => {
   assert.equal(r.data.lignes[0].statut, 'valide');
 });
 
+test('schéma 3 → 4 : poste recomposé « 10-Prestation… », autres lignes inchangées', () => {
+  const r = migrate({ schemaVersion: 3, config: {}, lignes: [
+    { id: 'a', mois: '2026-10', commande: '3000000101', poste: '10', prestation: 'Prestation de Développement', statut: 'br_cree' },
+    { id: 'b', mois: '2026-10', commande: '4500000001', poste: '20', prestation: '', statut: 'attendu' },
+    { id: 'c', mois: '2026-10', commande: '4500000002', poste: '10-Déjà complet', prestation: 'x', statut: 'attendu' },
+  ] }, { target: 4 });
+  assert.equal(r.data.schemaVersion, 4);
+  assert.deepEqual(r.data.lignes.map((l) => [l.poste, l.prestation]), [['10-Prestation de Développement', ''], ['20', ''], ['10-Déjà complet', 'x']]);
+  assert.equal(r.data.lignes[0].statut, 'br_cree');
+});
+
 test('la migration ne modifie pas l\'objet d\'origine', () => {
   const v0 = { lignes: [{ id: 'a', mois: '2026-10' }] };
   const copy = structuredClone(v0);

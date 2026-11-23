@@ -275,7 +275,6 @@ function renderTodo(lines) {
 }
 
 const COLUMNS = [
-  { key: 'mois', label: 'Mois' },
   { key: 'collaborateur', label: 'Collaborateur' },
   { key: 'fournisseur', label: 'Fournisseur' },
   { key: 'commande', label: 'Commande' },
@@ -303,9 +302,13 @@ function renderHead() {
   }));
 }
 
+/** Mois repliés dans le tableau (état de la session). */
+const collapsed = new Set();
+
 function renderTable(visible) {
   renderHead();
-  const lines = M.sortLines(visible, state.sort);
+  // Tri demandé à l'intérieur de chaque mois ; les mois du plus récent au plus ancien (tri stable).
+  const lines = M.sortLines(visible, state.sort).sort((a, b) => b.mois.localeCompare(a.mois));
   const tbody = clear($('linesBody'));
   const total = state.data.lignes.length;
   $('resultCount').textContent = total ? `${lines.length} ligne${lines.length > 1 ? 's' : ''} sur ${total}.` : '';
@@ -315,8 +318,33 @@ function renderTable(visible) {
     return;
   }
   const frag = document.createDocumentFragment();
-  for (const l of lines) frag.append(lineRow(l));
+  let i = 0;
+  while (i < lines.length) {
+    const mois = lines[i].mois;
+    let j = i;
+    while (j < lines.length && lines[j].mois === mois) j++;
+    const group = lines.slice(i, j);
+    frag.append(groupRow(mois, group));
+    if (!collapsed.has(mois)) for (const l of group) frag.append(lineRow(l));
+    i = j;
+  }
   tbody.append(frag);
+}
+
+function groupRow(mois, group) {
+  const c = M.countByStatus(group);
+  const t = M.totals(group);
+  const open = !collapsed.has(mois);
+  const tr = h('tr', { class: `group-row ${open ? 'open' : ''}`, tabIndex: 0, attrs: { 'aria-expanded': String(open) } },
+    h('td', { colSpan: COLUMNS.length },
+      h('div', { class: 'group-head' },
+        icon('chevronDown', { size: 14 }),
+        h('span', { class: 'group-title', text: capitalize(monthLabel(mois)) }),
+        h('span', { class: 'group-meta', text: `${group.length} ligne${group.length > 1 ? 's' : ''} · ${formatEuro(t.attendu)} · ${c.br_cree}/${group.length} BR créés` }))));
+  const toggle = () => { if (open) collapsed.add(mois); else collapsed.delete(mois); renderTable(filtered()); };
+  tr.addEventListener('click', toggle);
+  tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+  return tr;
 }
 
 function mainAction(l) {
@@ -345,10 +373,9 @@ function lineRow(l) {
     onclick: () => lineDetail(l.id),
     onkeydown: (e) => { if (e.key === 'Enter' && e.target === tr) lineDetail(l.id); },
   },
-  h('td', { class: 'nowrap muted', text: capitalize(shortMonth(l.mois)) }),
   h('td', {}, h('div', { class: 'cell-main', text: l.collaborateur }), l.commentaire ? h('div', { class: 'cell-sub', text: l.commentaire }) : null),
   h('td', { text: l.fournisseur }),
-  h('td', {}, copyable(l.commande, { label: 'Copier le n° de commande' }), l.poste ? h('div', { class: 'cell-sub', text: l.poste }) : null),
+  h('td', {}, copyable(l.commande, { label: 'Copier le n° de commande' }), l.poste ? h('div', { class: 'cell-sub', title: l.poste, text: l.poste }) : null),
   h('td', { class: 'num' }, h('div', { text: formatEuro(l.montantAttendu) }),
     l.jours !== null ? h('div', { class: 'cell-sub', title: l.details?.length ? `Somme de ${l.details.length} imputation(s)` : '', text: `${formatJours(l.jours)}${l.details?.length > 1 ? ` · ${l.details.length} lignes` : ''}` }) : null),
   h('td', { class: 'num' }, l.montantPV === null ? h('span', { class: 'muted', text: '—' }) : formatEuro(l.montantPV)),
