@@ -15,7 +15,6 @@
   --accent-text: #ffffff;
   --accent-hover: #3f3f46;
   --focus: #2563eb;
-  --caret: #1d4ed8;
   --hover: #f4f4f5;
   --overlay: rgb(9 9 11 / 40%);
   --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 18%), 0 2px 6px rgb(0 0 0 / 6%);
@@ -38,7 +37,6 @@
   --h-sm: 30px;
   --radius: 10px;
   --radius-sm: 8px;
-  --cursor-text: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='24' viewBox='0 0 16 24'%3E%3Cg fill='none' stroke-linecap='round'%3E%3Cpath d='M4.5 3.5h7M4.5 20.5h7M8 3.5v17' stroke='%23ffffff' stroke-width='4'/%3E%3Cpath d='M4.5 3.5h7M4.5 20.5h7M8 3.5v17' stroke='%2318181b' stroke-width='1.6'/%3E%3C/g%3E%3C/svg%3E") 8 12, text;
   --chevron: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
   color-scheme: light;
 }
@@ -57,7 +55,6 @@
     --accent-text: #18181b;
     --accent-hover: #d4d4d8;
     --focus: #60a5fa;
-    --caret: #93c5fd;
     --hover: #232327;
     --overlay: rgb(0 0 0 / 60%);
     --shadow-pop: 0 12px 32px -8px rgb(0 0 0 / 60%);
@@ -127,7 +124,8 @@ a { color: inherit; }
 .btn-large { height: 44px; padding: 0 22px; font-size: 15px; }
 .btn-icon { width: var(--h); padding: 0; }
 .btn-icon.btn-sm { width: var(--h-sm); }
-.btn-icon-placeholder { display: inline-block; width: var(--h-sm); }
+.btn-pv { min-width: 40px; padding: 0 8px; font-weight: 600; font-size: 12px; letter-spacing: .02em; }
+.btn-pv-placeholder { display: inline-block; width: 40px; }
 .btn-start { margin-right: auto; }
 .btn.copied { color: var(--ok); border-color: var(--ok); }
 .link-btn { font: inherit; color: var(--text); background: none; border: 0; padding: 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; text-decoration-color: var(--border-strong); }
@@ -136,16 +134,12 @@ a { color: inherit; }
 /* ---------- Champs ---------- */
 input, select, textarea, .control {
   font: inherit; color: var(--text);
-  caret-color: var(--caret);
   height: var(--h); padding: 0 12px;
   border: 1px solid var(--border); border-radius: var(--radius-sm);
   background: var(--surface);
   transition: border-color .12s, box-shadow .12s;
 }
 textarea { height: auto; padding: 8px 12px; resize: vertical; width: 100%; line-height: 1.45; }
-/* Curseur de la souris dans les champs de saisie : le « I » de Windows s'inverse selon le fond et peut disparaître ;
-   on utilise un « I » dessiné (foncé bordé de blanc), lisible en mode clair comme en mode sombre. */
-input:not([type=checkbox]):not([type=radio]):not([type=file]):not(:disabled), textarea:not(:disabled) { cursor: var(--cursor-text); }
 select { appearance: none; padding-right: 34px; background: var(--surface) var(--chevron) no-repeat right 10px center; cursor: pointer; }
 input:hover, select:hover, textarea:hover, .control:hover { border-color: var(--border-strong); }
 input:focus, select:focus, textarea:focus, .control:focus-visible { outline: none; border-color: var(--focus); box-shadow: 0 0 0 3px color-mix(in srgb, var(--focus) 18%, transparent); }

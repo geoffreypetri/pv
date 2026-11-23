@@ -6,6 +6,10 @@ Notez les changements à venir sous `## [Non publié]` : `node scripts/release.m
 
 ## [Non publié]
 
+## [0.5.1] - 2026-11-23
+- Tableau : bouton « PV » à la place de l'icône de fichier pour ouvrir le PV
+- Retour aux curseurs standard de Windows dans les champs de saisie
+
 ## [0.5.0] - 2026-11-23
 - Curseur de la souris toujours visible au survol des champs de saisie
 - PV rangés sous le nom « <n° de commande>_<fournisseur>_AAAA-MM.pdf »

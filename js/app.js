@@ -364,9 +364,9 @@ function mainAction(l) {
 
 function lineRow(l) {
   const pvBtn = l.fichierPV
-    ? h('button', { type: 'button', class: 'btn btn-icon btn-sm btn-ghost', title: `Ouvrir le PV (${l.fichierPV})`, attrs: { 'aria-label': 'Ouvrir le PV' },
-      onclick: (e) => { e.stopPropagation(); openPV(l.id); } }, icon('file'))
-    : h('span', { class: 'btn-icon-placeholder' });
+    ? h('button', { type: 'button', class: 'btn btn-sm btn-pv', text: 'PV', title: `Ouvrir le PV (${l.fichierPV})`, attrs: { 'aria-label': 'Ouvrir le PV' },
+      onclick: (e) => { e.stopPropagation(); openPV(l.id); } })
+    : h('span', { class: 'btn-pv-placeholder' });
   const tr = h('tr', {
     class: `row row-${l.statut} ${M.hasEcart(l, TOLERANCE()) ? 'row-ecart' : ''} ${l.alerteAbraxio ? 'row-alerte' : ''}`,
     dataset: { id: l.id },
