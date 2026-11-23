@@ -6,6 +6,9 @@ Notez les changements à venir sous `## [Non publié]` : `node scripts/release.m
 
 ## [Non publié]
 
+## [0.5.3] - 2026-11-23
+- Suppression des effets de flou (en-tête, fond des fenêtres) qui pouvaient rendre le curseur de texte blanc, donc invisible, sous Windows
+
 ## [0.5.2] - 2026-11-23
 - Tableau : le n° de BR s'affiche sous le statut « BR créé » (copiable au survol)
 
