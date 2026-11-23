@@ -356,7 +356,7 @@ function mainAction(l) {
     case STATUTS.ATTENDU: return btn('Déposer le PV', () => depositPV(l.id));
     case STATUTS.PV_RECU: return btn('Valider', () => validateLine(l.id), 'btn-primary');
     case STATUTS.VALIDE: return btn('Prêt pour SAP', () => sapSheet(l.id), 'btn-primary');
-    case STATUTS.BR_CREE: return h('span', { class: 'br-cell' }, h('span', { class: 'muted', text: 'BR ' }), copyable(l.numeroBR, { label: 'Copier le n° de BR' }));
+    case STATUTS.BR_CREE: return null; // n° de BR affiché sous le statut
     case STATUTS.LITIGE: return btn('Voir le litige', () => lineDetail(l.id), 'btn-danger-ghost');
     default: return null;
   }
@@ -381,7 +381,8 @@ function lineRow(l) {
     l.jours !== null ? h('div', { class: 'cell-sub', title: l.details?.length ? `Somme de ${l.details.length} imputation(s)` : '', text: `${formatJours(l.jours)}${l.details?.length > 1 ? ` · ${l.details.length} lignes` : ''}` }) : null),
   h('td', { class: 'num' }, l.montantPV === null ? h('span', { class: 'muted', text: '—' }) : formatEuro(l.montantPV)),
   h('td', { class: 'num' }, ecartView(l)),
-  h('td', {}, h('span', { class: 'status-cell' }, statusBadge(l.statut), alerteIcon(l))),
+  h('td', {}, h('span', { class: 'status-cell' }, statusBadge(l.statut), alerteIcon(l)),
+    l.statut === STATUTS.BR_CREE && l.numeroBR ? h('div', { class: 'cell-sub br-sub' }, copyable(l.numeroBR, { label: 'Copier le n° de BR' })) : null),
   h('td', { class: 'actions' }, h('div', { class: 'actions-inner' }, pvBtn, mainAction(l))));
 
   if (!state.readOnly) {

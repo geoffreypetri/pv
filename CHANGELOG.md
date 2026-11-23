@@ -6,6 +6,9 @@ Notez les changements à venir sous `## [Non publié]` : `node scripts/release.m
 
 ## [Non publié]
 
+## [0.5.2] - 2026-11-23
+- Tableau : le n° de BR s'affiche sous le statut « BR créé » (copiable au survol)
+
 ## [0.5.1] - 2026-11-23
 - Tableau : bouton « PV » à la place de l'icône de fichier pour ouvrir le PV
 - Retour aux curseurs standard de Windows dans les champs de saisie

@@ -309,7 +309,8 @@ th.num .th-sort { flex-direction: row-reverse; }
 .cell-sub { font-size: 12px; color: var(--muted); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 td.actions { white-space: nowrap; width: 1%; }
 .actions-inner { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
-.br-cell { display: inline-flex; align-items: center; gap: 4px; font-size: 13px; }
+.br-sub { padding-left: 13px; overflow: visible; }
+.br-sub .copy-btn { width: 22px; height: 22px; }
 .status-cell { display: inline-flex; align-items: center; gap: 8px; }
 .alerte { color: var(--warn); display: inline-flex; }
 .hint { color: var(--muted); font-size: 12px; margin-top: 10px; }
